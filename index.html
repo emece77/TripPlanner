@@ -399,7 +399,7 @@ function openEvent(dayId, eventId) {
   var trip = state.trips[state.activeTrip];
   var day = trip.days.find(function(d) { return String(d.id) === String(dayId); });
   if (!day) return;
-  var ev = day.events.find(function(e) { return String(e.id) === String(eventId); });
+  var ev = (day.events || []).find(function(e) { return String(e.id) === String(eventId); });
   if (!ev) return;
 
   var extra = {};
@@ -551,7 +551,7 @@ function saveEventChanges(eventId) {
   // Actualizar en estado local
   var trip = state.trips[state.activeTrip];
   trip.days.forEach(function(day) {
-    day.events.forEach(function(ev) {
+    (day.events || []).forEach(function(ev) {
       if (String(ev.id) === String(eventId)) {
         ev.time_start = fields.time_start;
         ev.time_end = fields.time_end;
