@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Firebase</title>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 24px; max-width: 600px; margin: 0 auto; }
+  h1 { font-size: 20px; }
+  .box { border: 2px solid #ccc; border-radius: 12px; padding: 16px; margin: 12px 0; }
+  .pass { border-color: #16a34a; background: #f0fdf4; }
+  .fail { border-color: #dc2626; background: #fef2f2; }
+  .label { font-weight: 700; font-size: 16px; }
+  pre { background: #f4f4f4; padding: 10px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  button { font-size: 16px; padding: 12px 20px; border-radius: 10px; border: none; background: #2563eb; color: #fff; }
+</style>
+
+<h1>Test de conexión Firebase</h1>
+<p>Probando escritura + lectura desde el navegador (CORS real).</p>
+
+<div id="write" class="box"><div class="label">1) Escribir (PUT)…</div></div>
+<div id="read" class="box"><div class="label">2) Leer de vuelta (GET)…</div></div>
+<div id="pc" class="box"><div class="label">3) Leer lo que escribió la PC…</div></div>
+
+<button onclick="location.reload()">↻ Reintentar</button>
+
+<script>
+var BASE = "https://tripplanner-ea6fc-default-rtdb.firebaseio.com";
+
+function show(id, ok, title, detail) {
+  var el = document.getElementById(id);
+  el.className = "box " + (ok ? "pass" : "fail");
+  el.innerHTML = '<div class="label">' + (ok ? "✅ " : "❌ ") + title + "</div>" +
+                 (detail ? "<pre>" + detail + "</pre>" : "");
+}
+
+var token = "celular-" + Date.now();
+
+// 1) Escribir
+fetch(BASE + "/test_phone.json", {
+  method: "PUT",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ origen: "celular", token: token })
+})
+.then(function(r) { return r.json(); })
+.then(function(data) {
+  show("write", true, "Escritura OK (PUT)", JSON.stringify(data));
+  // 2) Leer de vuelta
+  return fetch(BASE + "/test_phone.json").then(function(r) { return r.json(); });
+})
+.then(function(data) {
+  var ok = data && data.token === token;
+  show("read", ok, ok ? "Lectura OK (GET) — coincide" : "Lectura no coincide", JSON.stringify(data));
+})
+.catch(function(e) {
+  show("write", false, "Falló la escritura/lectura", String(e));
+  show("read", false, "No se ejecutó (falló el paso anterior)", "");
+});
+
+// 3) Leer lo que escribió la PC (Parte A)
+fetch(BASE + "/test_conn.json")
+.then(function(r) { return r.json(); })
+.then(function(data) {
+  var ok = data && data.origen === "PC";
+  show("pc", ok, ok ? "Leyó lo de la PC — cross-device OK" : "Todavía no hay dato de la PC", JSON.stringify(data));
+})
+.catch(function(e) {
+  show("pc", false, "Falló leer dato de la PC", String(e));
+});
+</script>
