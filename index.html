@@ -209,13 +209,6 @@
 
 <script>
 // ══════════════════════════════════════════════════
-// CONFIG GIST
-// ══════════════════════════════════════════════════
-var GIST_ID = '1992f11acad46894ae6e4b46024eb420';
-var GITHUB_TOKEN = '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';
-var GIST_API = 'https://api.github.com/gists/' + GIST_ID;
-
-// ══════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════
 var state = {
@@ -234,59 +227,38 @@ var MONTH_SHORT = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','
 var DAY_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
 // ══════════════════════════════════════════════════
-// GIST API
+// SYNC — Firebase Realtime Database
 // ══════════════════════════════════════════════════
-function gistFetch(method, body) {
-  return fetch(GIST_API, {
-    method: method || 'GET',
-    headers: {
-      'Authorization': 'token ' + GITHUB_TOKEN,
-      'Content-Type': 'application/json',
-      'User-Agent': 'TripPlanner'
-    },
-    body: body ? JSON.stringify(body) : undefined
-  }).then(function(r) { return r.json(); });
-}
+var FB = "https://tripplanner-ea6fc-default-rtdb.firebaseio.com";
 
-function loadFromGist() {
+function loadData() {
   document.getElementById('sync-label').textContent = 'Actualizando...';
-  gistFetch('GET').then(function(gist) {
-    if (!gist.files) { document.getElementById('sync-label').textContent = '❌ Error al cargar'; return; }
-    var tripFile = gist.files['trip_data.json'];
-    var changesFile = gist.files['changes_mobile.json'];
-    if (tripFile) {
-      fetch(tripFile.raw_url).then(function(r) { return r.json(); }).then(function(data) {
-        state.trips = data.trips || [];
-        state.exportedAt = data.exported_at;
-        document.getElementById('sync-label').textContent = 'Actualizado ' + formatSyncTime(data.exported_at);
-        renderTripsList();
-      });
-    }
-    if (changesFile) {
-      fetch(changesFile.raw_url).then(function(r) { return r.json(); }).then(function(data) {
-        state.changes = data.changes || [];
-      }).catch(function() { state.changes = []; });
-    }
-  }).catch(function() {
-    document.getElementById('sync-label').textContent = '❌ Sin conexión';
-  });
+  fetch(FB + "/trip_data.json")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data) { document.getElementById('sync-label').textContent = 'Sin datos aún'; return; }
+      state.trips = data.trips || [];
+      state.exportedAt = data.exported_at;
+      document.getElementById('sync-label').textContent = 'Actualizado ' + formatSyncTime(data.exported_at);
+      renderTripsList();
+    })
+    .catch(function() {
+      document.getElementById('sync-label').textContent = '❌ Sin conexión';
+    });
 }
 
-function saveChangesToGist() {
-  var payload = { files: { 'changes_mobile.json': { content: JSON.stringify({ changes: state.changes }, null, 2) } } };
-  gistFetch('PATCH', payload).catch(function() {});
+function saveChangesLocal() {
+  try {
+    localStorage.setItem('tp_changes', JSON.stringify({ changes: state.changes }));
+  } catch (e) {}
 }
 
 // ══════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════
 window.onload = function() {
-  loadFromGist();
+  loadData();
 };
-
-function loadData() {
-  loadFromGist();
-}
 
 // ══════════════════════════════════════════════════
 // NAVIGATION
@@ -662,12 +634,20 @@ function handleUpload(input) {
 // CHANGES PERSISTENCE
 // ══════════════════════════════════════════════════
 function saveChanges() {
-  saveChangesToGist();
-  showToast('Guardando... ✓');
+  var change = state.changes[state.changes.length - 1];
+  if (!change) return;
+  saveChangesLocal();  // backup local por las dudas
+  fetch(FB + "/changes.json", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(change)
+  })
+  .then(function() { showToast('Guardado ✓'); })
+  .catch(function() { showToast('Sin conexión — se guardó local'); });
 }
 
 function writeChangesFile(payload) {
-  saveChangesToGist();
+  saveChangesLocal();
 }
 
 // ══════════════════════════════════════════════════
