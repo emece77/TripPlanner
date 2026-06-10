@@ -527,6 +527,30 @@ function openEvent(dayId, eventId) {
     '<span class="toggle-slider"></span></label>' +
   '</div>';
 
+  // ── Documentos del evento ──
+  var evDocs = (trip.documents || []).filter(function(d) { return String(d.event_id) === String(ev.id); });
+  if (evDocs.length) {
+    html += '<div style="padding:4px 20px 0;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:8px">Documentos</div>';
+    html += '<div style="padding:0 16px 8px">';
+    evDocs.forEach(function(doc) {
+      var ext = (doc.original_name || '').split('.').pop().toLowerCase();
+      var icon = ext === 'pdf' ? '📕' : ['jpg','jpeg','png','webp'].includes(ext) ? '🖼️' : '📄';
+      var dlBtn = '';
+      if (doc.base64_data) {
+        var mime = doc.file_type || 'application/octet-stream';
+        var fname = esc(doc.original_name || 'documento');
+        dlBtn = ' <a href="data:' + mime + ';base64,' + doc.base64_data + '" download="' + fname + '" ' +
+          'style="padding:4px 10px;background:var(--accent);color:#fff;border-radius:6px;text-decoration:none;font-size:12px">⬇ Bajar</a>';
+      }
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">' +
+        '<span style="font-size:18px">' + icon + '</span>' +
+        '<span style="flex:1;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(doc.original_name || 'Documento') + '</span>' +
+        dlBtn +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
   html += '<div style="padding:16px 16px 4px;display:flex;gap:10px">' +
     '<button class="btn btn-primary" style="flex:1" onclick="saveEventChanges(\'' + ev.id + '\')">Guardar cambios</button>' +
     '<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>' +
@@ -591,12 +615,20 @@ function renderDocs() {
     var ext = (doc.filename || doc.original_name || '').split('.').pop().toLowerCase();
     var icon = ext === 'pdf' ? '📕' : ['jpg','jpeg','png','webp'].includes(ext) ? '🖼️' : '📄';
     var size = doc.file_size ? formatSize(doc.file_size) : '';
+    var dlBtn = '';
+    if (doc.base64_data) {
+      var mime = doc.file_type || 'application/octet-stream';
+      var fname = esc(doc.original_name || doc.filename || 'documento');
+      dlBtn = '<a href="data:' + mime + ';base64,' + doc.base64_data + '" download="' + fname + '" ' +
+        'style="padding:6px 12px;background:var(--accent);color:#fff;border-radius:8px;text-decoration:none;font-size:12px;white-space:nowrap">⬇ Bajar</a>';
+    }
     return '<div class="doc-row">' +
       '<div class="doc-icon">' + icon + '</div>' +
       '<div style="flex:1;min-width:0">' +
         '<div class="doc-name">' + esc(doc.original_name || doc.filename || 'Documento') + '</div>' +
         '<div class="doc-meta">' + size + (doc.notes ? ' · ' + esc(doc.notes) : '') + '</div>' +
       '</div>' +
+      dlBtn +
     '</div>';
   }).join('');
 }
