@@ -933,6 +933,7 @@ function renderBudget() {
         '</div>' +
         '<span style="font-weight:600;font-size:14px;white-space:nowrap;margin-right:8px">' + ex.amount + ' ' + ex.currency + '</span>' +
         '<button onclick="showExpenseForm(' + idx + ')" style="background:none;border:none;color:var(--accent);font-size:16px;cursor:pointer;padding:4px">✎</button>' +
+        '<button onclick="deleteExpense(' + idx + ')" style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:4px">✕</button>' +
       '</div>';
     });
   }
@@ -966,6 +967,18 @@ function showExpenseForm(editIndex) {
 
 function closeExpenseModal() {
   document.getElementById('expense-modal').style.display = 'none';
+}
+
+function deleteExpense(idx) {
+  var trip = state.trips[state.activeTrip];
+  if (!trip.extra_expenses) return;
+  var ex = trip.extra_expenses[idx];
+  if (ex && ex.id) {
+    state.changes.push({ action: 'delete_extra_expense', id: ex.id });
+    saveChanges();
+  }
+  trip.extra_expenses.splice(idx, 1);
+  renderBudget();
 }
 
 function saveExpense() {
