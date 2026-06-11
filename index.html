@@ -605,6 +605,11 @@ function openEvent(dayId, eventId) {
     '<label class="toggle"><input type="checkbox" id="ef-confirmed" ' + (ev.confirmed ? 'checked' : '') + '>' +
     '<span class="toggle-slider"></span></label>' +
   '</div>';
+  html += '<div class="toggle-row">' +
+    '<span class="toggle-label">Pagado</span>' +
+    '<label class="toggle"><input type="checkbox" id="ef-paid" ' + (ev.paid ? 'checked' : '') + '>' +
+    '<span class="toggle-slider"></span></label>' +
+  '</div>';
 
   // ── Documentos del evento ──
   var evDocs = (trip.documents || []).filter(function(d) { return String(d.event_id) === String(ev.id); });
@@ -648,7 +653,8 @@ function saveEventChanges(eventId) {
     time_start: document.getElementById('ef-time_start').value,
     time_end:   document.getElementById('ef-time_end').value,
     notes:      document.getElementById('ef-notes').value,
-    confirmed:  document.getElementById('ef-confirmed').checked ? 1 : 0
+    confirmed:  document.getElementById('ef-confirmed').checked ? 1 : 0,
+    paid:       document.getElementById('ef-paid').checked ? 1 : 0
   };
 
   // Actualizar en estado local
@@ -660,6 +666,7 @@ function saveEventChanges(eventId) {
         ev.time_end = fields.time_end;
         ev.notes = fields.notes;
         ev.confirmed = fields.confirmed;
+        ev.paid = fields.paid;
       }
     });
   });
