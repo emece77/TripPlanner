@@ -427,7 +427,10 @@ function renderDays() {
             '<div class="event-title">' + esc(ev.title || ev.type) + ' ' + multiday + '</div>' +
             (meta.length ? '<div class="event-meta">' + meta.join('<span style="opacity:0.3">·</span>') + '</div>' : '') +
           '</div>' +
-          '<div class="event-confirmed ' + (ev.confirmed ? 'confirmed-yes' : 'confirmed-no') + '"></div>' +
+          '<div style="display:flex;flex-direction:column;gap:4px;align-items:center">' +
+            '<div class="event-confirmed ' + (ev.confirmed ? 'confirmed-yes' : 'confirmed-no') + '" title="' + (ev.confirmed ? 'Confirmado' : 'Sin confirmar') + '"></div>' +
+            (ev.paid ? '<div style="width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0" title="Pagado"></div>' : '<div style="width:8px;height:8px;flex-shrink:0"></div>') +
+          '</div>' +
         '</div>';
       });
     }
@@ -497,7 +500,10 @@ function openEvent(dayId, eventId) {
       (ev.location ? '<div style="font-size:13px;color:var(--text-muted);margin-top:4px">📍 ' + esc(ev.location) + '</div>' : '') +
       (ev.time_start ? '<div style="font-size:13px;color:var(--accent);margin-top:4px">🕐 ' + ev.time_start + (ev.time_end ? ' – ' + ev.time_end : '') + '</div>' : '') +
     '</div>' +
-    (ev.confirmed ? '<span style="color:var(--success);font-size:18px;flex-shrink:0">✓</span>' : '') +
+    '<div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0">' +
+      (ev.confirmed ? '<span style="color:var(--success);font-size:18px" title="Confirmado">✓</span>' : '<span style="color:var(--text-muted);font-size:18px" title="Sin confirmar">○</span>') +
+      (ev.paid ? '<span style="color:var(--accent);font-size:11px;font-weight:600;background:var(--accent-dim);padding:2px 6px;border-radius:10px">PAGADO</span>' : '') +
+    '</div>' +
   '</div>';
 
   // ── Botón Maps ──
