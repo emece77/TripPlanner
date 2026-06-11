@@ -183,9 +183,69 @@
       <div class="topbar-title" id="trip-title"></div>
       <div class="topbar-sub" id="trip-sub"></div>
     </div>
+    <button class="topbar-action" onclick="showBudget()">💰</button>
     <button class="topbar-action" onclick="showDocs()">📄</button>
   </div>
   <div class="content" id="trip-days"></div>
+</div>
+
+<!-- ══ SCREEN: BUDGET ══ -->
+<div id="screen-budget" class="screen">
+  <div class="topbar">
+    <button class="topbar-back" onclick="showScreen('trip')">‹</button>
+    <div class="topbar-title">Gastos</div>
+    <button class="topbar-action" onclick="showExpenseForm()">+ Agregar</button>
+  </div>
+  <div class="content" id="budget-content"></div>
+</div>
+
+<!-- ══ MODAL: ADD EXPENSE ══ -->
+<div id="expense-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeExpenseModal()">
+  <div class="modal-sheet" style="padding:20px">
+    <div class="modal-handle"></div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:16px">Nuevo gasto</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <div class="field-label">Fecha</div>
+        <input class="field-input" type="date" id="exp-date">
+      </div>
+      <div>
+        <div class="field-label">Categoría</div>
+        <select class="field-input" id="exp-category">
+          <option value="vuelos">Vuelos</option>
+          <option value="alojamiento">Alojamiento</option>
+          <option value="traslados">Traslados</option>
+          <option value="excursiones">Excursiones</option>
+          <option value="restaurantes">Restaurantes</option>
+          <option value="actividades">Actividades</option>
+          <option value="compras">Compras</option>
+          <option value="otros" selected>Otros</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <div class="field-label">Descripción</div>
+      <input class="field-input" type="text" id="exp-description" placeholder="Ej: Souvenirs, propina...">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+      <div>
+        <div class="field-label">Monto</div>
+        <input class="field-input" type="number" id="exp-amount" min="0" step="0.01" placeholder="0.00">
+      </div>
+      <div>
+        <div class="field-label">Moneda</div>
+        <select class="field-input" id="exp-currency">
+          <option>USD</option><option>EUR</option><option>ARS</option>
+          <option>GBP</option><option>BRL</option><option>CLP</option>
+          <option>MXN</option><option>COP</option><option>PEN</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeExpenseModal()">Cancelar</button>
+      <button class="btn btn-primary" style="flex:1" onclick="saveExpense()">Guardar</button>
+    </div>
+  </div>
 </div>
 
 <!-- ══ SCREEN: DOCS ══ -->
@@ -718,6 +778,143 @@ function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
   return (bytes/1048576).toFixed(1) + ' MB';
+}
+
+// ══════════════════════════════════════════════════
+// BUDGET
+// ══════════════════════════════════════════════════
+var CAT_COLORS = { vuelos:'#5b9bd5', alojamiento:'#ed7d31', traslados:'#a5a5a5', excursiones:'#70ad47', restaurantes:'#ffc000', actividades:'#9b59b6', compras:'#e74c3c', otros:'#556b7d' };
+var CAT_ICONS  = { vuelos:'✈️', alojamiento:'🏨', traslados:'🚗', excursiones:'🏔️', restaurantes:'🍽️', actividades:'🎭', compras:'🛍️', otros:'💸' };
+
+function showBudget() {
+  renderBudget();
+  showScreen('budget');
+}
+
+function renderBudget() {
+  var trip = state.trips[state.activeTrip];
+  if (!trip) return;
+  var el = document.getElementById('budget-content');
+  var expenses = trip.extra_expenses || [];
+  var baseCurrency = (trip.budget && trip.budget.base_currency) || 'USD';
+  var totalBudget = (trip.budget && trip.budget.total_budget) || 0;
+  var rates = trip.fx_rates || [];
+
+  function toBase(amount, currency) {
+    if (currency === baseCurrency) return amount;
+    var r = rates.find(function(x) { return x.from_currency === currency; });
+    return r ? amount / r.rate : amount;
+  }
+
+  var catTotals = {};
+  (trip.days || []).forEach(function(day) {
+    (day.events || []).forEach(function(ev) {
+      if (ev._multiday_label || ev._continuation || !ev.cost) return;
+      var cat = ev.type === 'flight' ? 'vuelos' : ev.type === 'hotel' ? 'alojamiento' :
+        ev.type === 'transfer' || ev.type === 'car' ? 'traslados' :
+        ev.type === 'excursion' ? 'excursiones' : ev.type === 'restaurant' ? 'restaurantes' :
+        ev.type === 'activity' ? 'actividades' : 'otros';
+      catTotals[cat] = (catTotals[cat] || 0) + toBase(ev.cost, ev.currency || baseCurrency);
+    });
+  });
+  expenses.forEach(function(ex) {
+    catTotals[ex.category] = (catTotals[ex.category] || 0) + toBase(ex.amount, ex.currency);
+  });
+
+  var totalSpent = Object.values(catTotals).reduce(function(a, b) { return a + b; }, 0);
+  var pct = totalBudget > 0 ? Math.min(100, Math.round(totalSpent / totalBudget * 100)) : 0;
+  var over = totalBudget > 0 && totalSpent > totalBudget;
+
+  var html = '';
+
+  html += '<div class="card" style="margin-bottom:12px">';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
+  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">GASTADO</div>' +
+    '<div style="font-size:20px;font-weight:600;color:' + (over ? 'var(--danger)' : 'var(--text)') + '">' + totalSpent.toFixed(0) + ' ' + baseCurrency + '</div></div>';
+  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">PRESUPUESTO</div>' +
+    '<div style="font-size:20px;font-weight:600">' + (totalBudget > 0 ? totalBudget.toFixed(0) + ' ' + baseCurrency : '—') + '</div></div>';
+  html += '</div>';
+  if (totalBudget > 0) {
+    html += '<div style="display:flex;align-items:center;gap:8px">' +
+      '<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">' +
+        '<div style="width:' + pct + '%;height:100%;background:' + (over ? 'var(--danger)' : pct > 80 ? 'var(--accent)' : 'var(--success)') + ';border-radius:4px"></div>' +
+      '</div><span style="font-size:12px;color:' + (over ? 'var(--danger)' : 'var(--text-muted)') + '">' + pct + '%</span></div>';
+  }
+  html += '</div>';
+
+  var cats = Object.keys(catTotals).filter(function(c) { return catTotals[c] > 0; });
+  if (cats.length) {
+    html += '<div class="card" style="margin-bottom:12px"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Por categoría</div>';
+    cats.forEach(function(cat) {
+      var pctCat = totalSpent > 0 ? Math.round(catTotals[cat] / totalSpent * 100) : 0;
+      html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+        '<span style="font-size:18px">' + (CAT_ICONS[cat] || '💸') + '</span>' +
+        '<div style="flex:1">' +
+          '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px">' +
+            '<span style="text-transform:capitalize">' + cat + '</span>' +
+            '<span style="font-weight:500">' + catTotals[cat].toFixed(0) + ' ' + baseCurrency + '</span>' +
+          '</div>' +
+          '<div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">' +
+            '<div style="width:' + pctCat + '%;height:100%;background:' + (CAT_COLORS[cat] || '#556b7d') + ';border-radius:3px"></div>' +
+          '</div>' +
+        '</div>' +
+        '<span style="font-size:12px;color:var(--text-muted);min-width:32px;text-align:right">' + pctCat + '%</span>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '<div class="card"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Gastos adicionales</div>';
+  if (!expenses.length) {
+    html += '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:12px 0">Sin gastos adicionales</div>';
+  } else {
+    expenses.forEach(function(ex) {
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">' +
+        '<span style="font-size:18px">' + (CAT_ICONS[ex.category] || '💸') + '</span>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:14px">' + esc(ex.description || ex.category) + '</div>' +
+          '<div style="font-size:12px;color:var(--text-muted)">' + (ex.date || '') + ' · ' + ex.category + '</div>' +
+        '</div>' +
+        '<span style="font-weight:600;font-size:14px;white-space:nowrap">' + ex.amount + ' ' + ex.currency + '</span>' +
+      '</div>';
+    });
+  }
+  html += '</div>';
+
+  el.innerHTML = html;
+}
+
+function showExpenseForm() {
+  var today = new Date().toISOString().split('T')[0];
+  document.getElementById('exp-date').value = today;
+  document.getElementById('exp-amount').value = '';
+  document.getElementById('exp-description').value = '';
+  document.getElementById('expense-modal').style.display = 'flex';
+}
+
+function closeExpenseModal() {
+  document.getElementById('expense-modal').style.display = 'none';
+}
+
+function saveExpense() {
+  var trip = state.trips[state.activeTrip];
+  var change = {
+    action: 'add_extra_expense',
+    data: {
+      trip_id: trip.id,
+      date: document.getElementById('exp-date').value,
+      category: document.getElementById('exp-category').value,
+      description: document.getElementById('exp-description').value,
+      amount: parseFloat(document.getElementById('exp-amount').value) || 0,
+      currency: document.getElementById('exp-currency').value
+    }
+  };
+  state.changes.push(change);
+  if (!trip.extra_expenses) trip.extra_expenses = [];
+  trip.extra_expenses.push(change.data);
+  closeExpenseModal();
+  renderBudget();
+  saveChanges();
 }
 
 function showToast(msg) {
