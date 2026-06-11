@@ -241,6 +241,18 @@
         </select>
       </div>
     </div>
+    <div style="margin-bottom:16px">
+      <div class="field-label">Medio de pago</div>
+      <select class="field-input" id="exp-payment-method">
+        <option value="">— Sin especificar —</option>
+        <option value="efectivo">Efectivo</option>
+        <option value="debito">Débito</option>
+        <option value="credito">Crédito</option>
+        <option value="transferencia">Transferencia</option>
+        <option value="crypto">Crypto</option>
+      </select>
+    </div>
+    <input type="hidden" id="exp-editing-index">
     <div style="display:flex;gap:10px">
       <button class="btn btn-ghost" style="flex:1" onclick="closeExpenseModal()">Cancelar</button>
       <button class="btn btn-primary" style="flex:1" onclick="saveExpense()">Guardar</button>
@@ -809,7 +821,7 @@ function renderBudget() {
   var catTotals = {};
   (trip.days || []).forEach(function(day) {
     (day.events || []).forEach(function(ev) {
-      if (ev._multiday_label || ev._continuation || !ev.cost) return;
+      if (ev._multiday_label || ev._continuation || !ev.cost || !ev.paid) return;
       var cat = ev.type === 'flight' ? 'vuelos' : ev.type === 'hotel' ? 'alojamiento' :
         ev.type === 'transfer' || ev.type === 'car' ? 'traslados' :
         ev.type === 'excursion' ? 'excursiones' : ev.type === 'restaurant' ? 'restaurantes' :
@@ -821,18 +833,47 @@ function renderBudget() {
     catTotals[ex.category] = (catTotals[ex.category] || 0) + toBase(ex.amount, ex.currency);
   });
 
-  var totalSpent = Object.values(catTotals).reduce(function(a, b) { return a + b; }, 0);
-  var pct = totalBudget > 0 ? Math.min(100, Math.round(totalSpent / totalBudget * 100)) : 0;
-  var over = totalBudget > 0 && totalSpent > totalBudget;
+  // Estimado: todos los eventos con costo
+  var totalEstimado = 0;
+  (trip.days || []).forEach(function(day) {
+    (day.events || []).forEach(function(ev) {
+      if (ev._multiday_label || ev._continuation || !ev.cost) return;
+      totalEstimado += toBase(ev.cost, ev.currency || baseCurrency);
+    });
+  });
+  (trip.extra_expenses || []).forEach(function(ex) {
+    totalEstimado += toBase(ex.amount, ex.currency);
+  });
+
+  // Gastado: eventos paid + gastos adicionales
+  var totalGastado = 0;
+  (trip.days || []).forEach(function(day) {
+    (day.events || []).forEach(function(ev) {
+      if (ev._multiday_label || ev._continuation || !ev.cost || !ev.paid) return;
+      totalGastado += toBase(ev.cost, ev.currency || baseCurrency);
+    });
+  });
+  (trip.extra_expenses || []).forEach(function(ex) {
+    totalGastado += toBase(ex.amount, ex.currency);
+  });
+
+  var disponible = totalBudget > 0 ? totalBudget - totalGastado : null;
+  var over = disponible !== null && disponible < 0;
+  var pct = totalBudget > 0 ? Math.min(100, Math.round(totalGastado / totalBudget * 100)) : 0;
 
   var html = '';
 
   html += '<div class="card" style="margin-bottom:12px">';
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
-  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">GASTADO</div>' +
-    '<div style="font-size:20px;font-weight:600;color:' + (over ? 'var(--danger)' : 'var(--text)') + '">' + totalSpent.toFixed(0) + ' ' + baseCurrency + '</div></div>';
+  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">ESTIMADO</div>' +
+    '<div style="font-size:18px;font-weight:600">' + totalEstimado.toFixed(0) + ' ' + baseCurrency + '</div></div>';
   html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">PRESUPUESTO</div>' +
-    '<div style="font-size:20px;font-weight:600">' + (totalBudget > 0 ? totalBudget.toFixed(0) + ' ' + baseCurrency : '—') + '</div></div>';
+    '<div style="font-size:18px;font-weight:600">' + (totalBudget > 0 ? totalBudget.toFixed(0) + ' ' + baseCurrency : '—') + '</div></div>';
+  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">GASTADO</div>' +
+    '<div style="font-size:18px;font-weight:600;color:' + (over ? 'var(--danger)' : 'var(--text)') + '">' + totalGastado.toFixed(0) + ' ' + baseCurrency + '</div></div>';
+  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">DISPONIBLE</div>' +
+    '<div style="font-size:18px;font-weight:600;color:' + (disponible === null ? 'var(--text-muted)' : over ? 'var(--danger)' : 'var(--success)') + '">' +
+    (disponible === null ? '—' : disponible.toFixed(0) + ' ' + baseCurrency) + '</div></div>';
   html += '</div>';
   if (totalBudget > 0) {
     html += '<div style="display:flex;align-items:center;gap:8px">' +
@@ -842,11 +883,12 @@ function renderBudget() {
   }
   html += '</div>';
 
+  var totalCatSum = Object.values(catTotals).reduce(function(a,b){return a+b;},0);
   var cats = Object.keys(catTotals).filter(function(c) { return catTotals[c] > 0; });
   if (cats.length) {
-    html += '<div class="card" style="margin-bottom:12px"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Por categoría</div>';
+    html += '<div class="card" style="margin-bottom:12px"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Por categoría (gastado)</div>';
     cats.forEach(function(cat) {
-      var pctCat = totalSpent > 0 ? Math.round(catTotals[cat] / totalSpent * 100) : 0;
+      var pctCat = totalCatSum > 0 ? Math.round(catTotals[cat] / totalCatSum * 100) : 0;
       html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
         '<span style="font-size:18px">' + (CAT_ICONS[cat] || '💸') + '</span>' +
         '<div style="flex:1">' +
@@ -868,14 +910,16 @@ function renderBudget() {
   if (!expenses.length) {
     html += '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:12px 0">Sin gastos adicionales</div>';
   } else {
-    expenses.forEach(function(ex) {
+    expenses.forEach(function(ex, idx) {
+      var pmLabel = ex.payment_method ? ' · ' + ex.payment_method : '';
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">' +
         '<span style="font-size:18px">' + (CAT_ICONS[ex.category] || '💸') + '</span>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:14px">' + esc(ex.description || ex.category) + '</div>' +
-          '<div style="font-size:12px;color:var(--text-muted)">' + (ex.date || '') + ' · ' + ex.category + '</div>' +
+          '<div style="font-size:12px;color:var(--text-muted)">' + (ex.date || '') + ' · ' + ex.category + pmLabel + '</div>' +
         '</div>' +
-        '<span style="font-weight:600;font-size:14px;white-space:nowrap">' + ex.amount + ' ' + ex.currency + '</span>' +
+        '<span style="font-weight:600;font-size:14px;white-space:nowrap;margin-right:8px">' + ex.amount + ' ' + ex.currency + '</span>' +
+        '<button onclick="showExpenseForm(' + idx + ')" style="background:none;border:none;color:var(--accent);font-size:16px;cursor:pointer;padding:4px">✎</button>' +
       '</div>';
     });
   }
@@ -884,11 +928,26 @@ function renderBudget() {
   el.innerHTML = html;
 }
 
-function showExpenseForm() {
-  var today = new Date().toISOString().split('T')[0];
-  document.getElementById('exp-date').value = today;
-  document.getElementById('exp-amount').value = '';
-  document.getElementById('exp-description').value = '';
+function showExpenseForm(editIndex) {
+  var trip = state.trips[state.activeTrip];
+  document.getElementById('exp-editing-index').value = editIndex !== undefined ? editIndex : '';
+  if (editIndex !== undefined) {
+    var ex = trip.extra_expenses[editIndex];
+    document.getElementById('exp-date').value = ex.date || '';
+    document.getElementById('exp-category').value = ex.category || 'otros';
+    document.getElementById('exp-description').value = ex.description || '';
+    document.getElementById('exp-amount').value = ex.amount || '';
+    document.getElementById('exp-currency').value = ex.currency || 'USD';
+    document.getElementById('exp-payment-method').value = ex.payment_method || '';
+    document.querySelector('#expense-modal .modal-sheet div[style*="font-size:16px"]').textContent = 'Editar gasto';
+  } else {
+    var today = new Date().toISOString().split('T')[0];
+    document.getElementById('exp-date').value = today;
+    document.getElementById('exp-amount').value = '';
+    document.getElementById('exp-description').value = '';
+    document.getElementById('exp-payment-method').value = '';
+    document.querySelector('#expense-modal .modal-sheet div[style*="font-size:16px"]').textContent = 'Nuevo gasto';
+  }
   document.getElementById('expense-modal').style.display = 'flex';
 }
 
@@ -898,20 +957,24 @@ function closeExpenseModal() {
 
 function saveExpense() {
   var trip = state.trips[state.activeTrip];
-  var change = {
-    action: 'add_extra_expense',
-    data: {
-      trip_id: trip.id,
-      date: document.getElementById('exp-date').value,
-      category: document.getElementById('exp-category').value,
-      description: document.getElementById('exp-description').value,
-      amount: parseFloat(document.getElementById('exp-amount').value) || 0,
-      currency: document.getElementById('exp-currency').value
-    }
+  var editIndex = document.getElementById('exp-editing-index').value;
+  var data = {
+    trip_id: trip.id,
+    date: document.getElementById('exp-date').value,
+    category: document.getElementById('exp-category').value,
+    description: document.getElementById('exp-description').value,
+    amount: parseFloat(document.getElementById('exp-amount').value) || 0,
+    currency: document.getElementById('exp-currency').value,
+    payment_method: document.getElementById('exp-payment-method').value
   };
-  state.changes.push(change);
   if (!trip.extra_expenses) trip.extra_expenses = [];
-  trip.extra_expenses.push(change.data);
+  if (editIndex !== '') {
+    trip.extra_expenses[parseInt(editIndex)] = Object.assign(trip.extra_expenses[parseInt(editIndex)], data);
+  } else {
+    var change = { action: 'add_extra_expense', data: data };
+    state.changes.push(change);
+    trip.extra_expenses.push(data);
+  }
   closeExpenseModal();
   renderBudget();
   saveChanges();
