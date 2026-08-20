@@ -41,7 +41,6 @@
   /* ── CONTENT ── */
   .screen { display: none; flex-direction: column; height: 100vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .screen.active { display: flex; }
-  body.modal-open .screen.active { overflow: hidden; touch-action: none; }
   .content { padding: 70px 0 calc(var(--safe-bot) + 16px); flex: 1; }
 
   /* ── TRIPS LIST ── */
@@ -362,6 +361,30 @@ window.onload = function() {
 // ══════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════
+function lockBodyScroll() {
+  var el = document.querySelector('.screen.active');
+  if (!el || el._scrollLocked) return;
+  el._scrollLocked = true;
+  el._scrollPos = el.scrollTop;
+  el.style.position = 'fixed';
+  el.style.top = (-el._scrollPos) + 'px';
+  el.style.left = '0';
+  el.style.right = '0';
+  el.style.width = '100%';
+}
+
+function unlockBodyScroll() {
+  var el = document.querySelector('.screen.active');
+  if (!el || !el._scrollLocked) return;
+  el._scrollLocked = false;
+  el.style.position = '';
+  el.style.top = '';
+  el.style.left = '';
+  el.style.right = '';
+  el.style.width = '';
+  el.scrollTop = el._scrollPos || 0;
+}
+
 function showScreen(name) {
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('screen-' + name).classList.add('active');
@@ -606,10 +629,6 @@ function openEvent(dayId, eventId) {
     infoHtml += infoRow('Devolución', extra.dropoff_location);
   }
 
-  if (ev.cost > 0) {
-    infoHtml += infoRow('Costo', ev.cost + ' ' + (ev.currency||''));
-  }
-
   if (infoHtml) {
     html += '<div class="modal-section">' + infoHtml + '</div>';
   }
@@ -623,7 +642,17 @@ function openEvent(dayId, eventId) {
       '<div><div class="field-label">Hora fin</div>' +
       '<input class="field-input" type="time" id="ef-time_end" value="' + (ev.time_end||'') + '"></div>' +
     '</div>' +
-    '<div><div class="field-label">Notas</div>' +
+    '<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-top:12px">' +
+      '<div><div class="field-label">Monto</div>' +
+      '<input class="field-input" type="number" step="0.01" id="ef-cost" value="' + (ev.cost || '') + '"></div>' +
+      '<div><div class="field-label">Moneda</div>' +
+      '<select class="field-input" id="ef-currency">' +
+        ['USD','EUR','ARS','GBP','BRL','CLP','MXN','COP','PEN'].map(function(c) {
+          return '<option' + (ev.currency === c ? ' selected' : '') + '>' + c + '</option>';
+        }).join('') +
+      '</select></div>' +
+    '</div>' +
+    '<div style="margin-top:12px"><div class="field-label">Notas</div>' +
     '<textarea class="field-input" id="ef-notes">' + esc(ev.notes||'') + '</textarea></div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">' +
       '<div><div class="field-label">Medio de pago</div>' +
@@ -682,12 +711,12 @@ function openEvent(dayId, eventId) {
 
   document.getElementById('modal-content').innerHTML = html;
   document.getElementById('event-modal').style.display = 'flex';
-  document.body.classList.add('modal-open');
+  lockBodyScroll();
 }
 
 function closeModal() {
   document.getElementById('event-modal').style.display = 'none';
-  document.body.classList.remove('modal-open');
+  unlockBodyScroll();
 }
 
 function saveEventChanges(eventId) {
@@ -698,7 +727,9 @@ function saveEventChanges(eventId) {
     confirmed:  document.getElementById('ef-confirmed').checked ? 1 : 0,
     paid:       document.getElementById('ef-paid').checked ? 1 : 0,
     payment_method: document.getElementById('ef-payment_method').value,
-    card:       document.getElementById('ef-card').value
+    card:       document.getElementById('ef-card').value,
+    cost:       parseFloat(document.getElementById('ef-cost').value) || 0,
+    currency:   document.getElementById('ef-currency').value
   };
 
   // Actualizar en estado local
@@ -713,6 +744,8 @@ function saveEventChanges(eventId) {
         ev.paid = fields.paid;
         ev.payment_method = fields.payment_method;
         ev.card = fields.card;
+        ev.cost = fields.cost;
+        ev.currency = fields.currency;
       }
     });
   });
@@ -958,12 +991,12 @@ function showExpenseDetail(filter) {
 
   document.getElementById('expense-detail-content').innerHTML = html;
   document.getElementById('expense-detail-modal').style.display = 'flex';
-  document.body.classList.add('modal-open');
+  lockBodyScroll();
 }
 
 function closeExpenseDetail() {
   document.getElementById('expense-detail-modal').style.display = 'none';
-  document.body.classList.remove('modal-open');
+  unlockBodyScroll();
 }
 
 function renderBudget() {
@@ -1205,12 +1238,12 @@ function showExpenseForm(editIndex) {
     document.querySelector('#expense-modal .modal-sheet div[style*="font-size:16px"]').textContent = 'Nuevo gasto';
   }
   document.getElementById('expense-modal').style.display = 'flex';
-  document.body.classList.add('modal-open');
+  lockBodyScroll();
 }
 
 function closeExpenseModal() {
   document.getElementById('expense-modal').style.display = 'none';
-  document.body.classList.remove('modal-open');
+  unlockBodyScroll();
 }
 
 function deleteExpense(idx) {
