@@ -41,6 +41,7 @@
   /* ── CONTENT ── */
   .screen { display: none; flex-direction: column; height: 100vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .screen.active { display: flex; }
+  body.modal-open .screen.active { overflow: hidden; touch-action: none; }
   .content { padding: 70px 0 calc(var(--safe-bot) + 16px); flex: 1; }
 
   /* ── TRIPS LIST ── */
@@ -624,6 +625,19 @@ function openEvent(dayId, eventId) {
     '</div>' +
     '<div><div class="field-label">Notas</div>' +
     '<textarea class="field-input" id="ef-notes">' + esc(ev.notes||'') + '</textarea></div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">' +
+      '<div><div class="field-label">Medio de pago</div>' +
+      '<select class="field-input" id="ef-payment_method">' +
+        '<option value=""' + (!ev.payment_method ? ' selected' : '') + '>— Sin especificar —</option>' +
+        '<option value="efectivo"' + (ev.payment_method==='efectivo'?' selected':'') + '>Efectivo</option>' +
+        '<option value="debito"' + (ev.payment_method==='debito'?' selected':'') + '>Débito</option>' +
+        '<option value="credito"' + (ev.payment_method==='credito'?' selected':'') + '>Crédito</option>' +
+        '<option value="transferencia"' + (ev.payment_method==='transferencia'?' selected':'') + '>Transferencia</option>' +
+        '<option value="crypto"' + (ev.payment_method==='crypto'?' selected':'') + '>Crypto</option>' +
+      '</select></div>' +
+      '<div><div class="field-label">Tarjeta</div>' +
+      '<select class="field-input" id="ef-card" onchange="handleCardSelectChange(this)">' + buildCardOptionsHtml(ev.card || '') + '</select></div>' +
+    '</div>' +
   '</div>';
 
   html += '<div class="toggle-row">' +
@@ -668,10 +682,12 @@ function openEvent(dayId, eventId) {
 
   document.getElementById('modal-content').innerHTML = html;
   document.getElementById('event-modal').style.display = 'flex';
+  document.body.classList.add('modal-open');
 }
 
 function closeModal() {
   document.getElementById('event-modal').style.display = 'none';
+  document.body.classList.remove('modal-open');
 }
 
 function saveEventChanges(eventId) {
@@ -680,7 +696,9 @@ function saveEventChanges(eventId) {
     time_end:   document.getElementById('ef-time_end').value,
     notes:      document.getElementById('ef-notes').value,
     confirmed:  document.getElementById('ef-confirmed').checked ? 1 : 0,
-    paid:       document.getElementById('ef-paid').checked ? 1 : 0
+    paid:       document.getElementById('ef-paid').checked ? 1 : 0,
+    payment_method: document.getElementById('ef-payment_method').value,
+    card:       document.getElementById('ef-card').value
   };
 
   // Actualizar en estado local
@@ -693,6 +711,8 @@ function saveEventChanges(eventId) {
         ev.notes = fields.notes;
         ev.confirmed = fields.confirmed;
         ev.paid = fields.paid;
+        ev.payment_method = fields.payment_method;
+        ev.card = fields.card;
       }
     });
   });
@@ -863,20 +883,35 @@ function getAllSpendRecords(trip) {
         date: day.date || '', title: ev.title || cat, category: cat,
         amount: ev.cost, currency: ev.currency || baseCurrency,
         amountBase: toBase(ev.cost, ev.currency || baseCurrency),
-        payment_method: ev.payment_method || '', card: ev.card || '', source: 'evento'
+        payment_method: ev.payment_method || '', card: ev.card || '', source: 'evento',
+        dayId: day.id, eventId: ev.id
       });
     });
   });
-  (trip.extra_expenses || []).forEach(function(ex) {
+  (trip.extra_expenses || []).forEach(function(ex, idx) {
     records.push({
       date: ex.date || '', title: ex.description || ex.category, category: ex.category,
       amount: ex.amount, currency: ex.currency,
       amountBase: toBase(ex.amount, ex.currency),
-      payment_method: ex.payment_method || '', card: ex.card || '', source: 'manual'
+      payment_method: ex.payment_method || '', card: ex.card || '', source: 'manual',
+      expenseIndex: idx
     });
   });
   records.sort(function(a, b) { return (a.date || '') < (b.date || '') ? 1 : -1; });
   return records;
+}
+
+var _expDetailRecords = [];
+
+function openRecordFromDetail(i) {
+  var r = _expDetailRecords[i];
+  if (!r) return;
+  closeExpenseDetail();
+  if (r.source === 'evento') {
+    openEvent(r.dayId, r.eventId);
+  } else {
+    showExpenseForm(r.expenseIndex);
+  }
 }
 
 function showExpenseDetail(filter) {
@@ -893,6 +928,8 @@ function showExpenseDetail(filter) {
     : filter.payment_method !== undefined ? (PM_LABELS[filter.payment_method] || 'Sin especificar')
     : '📋 Todos los gastos';
 
+  _expDetailRecords = records;
+
   var html = '<div class="modal-handle"></div>';
   html += '<div class="modal-title" style="text-transform:capitalize">' + esc(title) + '</div>';
   html += '<div class="modal-sub">' + records.length + ' registro' + (records.length === 1 ? '' : 's') + ' · ' + total.toFixed(0) + ' ' + baseCurrency + '</div>';
@@ -900,17 +937,17 @@ function showExpenseDetail(filter) {
     html += '<div class="empty" style="padding:40px 20px"><div class="empty-icon">🧾</div><div class="empty-text">Sin registros.</div></div>';
   } else {
     html += '<div style="padding:0 20px 8px">';
-    records.forEach(function(r) {
+    records.forEach(function(r, i) {
       var meta = formatDateShort(r.date) + ' · ' + r.source;
       if (r.payment_method) meta += ' · ' + r.payment_method;
       if (r.card) meta += ' · 💳 ' + esc(r.card);
-      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">' +
-        '<span style="font-size:18px">' + (CAT_ICONS[r.category] || '💸') + '</span>' +
+      html += '<div class="card-row card-row-link" onclick="openRecordFromDetail(' + i + ')">' +
+        '<span style="font-size:18px;flex-shrink:0">' + (CAT_ICONS[r.category] || '💸') + '</span>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:14px">' + esc(r.title) + '</div>' +
           '<div style="font-size:12px;color:var(--text-muted)">' + meta + '</div>' +
         '</div>' +
-        '<span style="font-weight:600;font-size:14px;white-space:nowrap">' + r.amount + ' ' + r.currency + '</span>' +
+        '<span style="font-weight:600;font-size:14px;white-space:nowrap;display:flex;align-items:center;flex-shrink:0">' + r.amount + ' ' + r.currency + '<span class="chev">›</span></span>' +
       '</div>';
     });
     html += '</div>';
@@ -921,10 +958,12 @@ function showExpenseDetail(filter) {
 
   document.getElementById('expense-detail-content').innerHTML = html;
   document.getElementById('expense-detail-modal').style.display = 'flex';
+  document.body.classList.add('modal-open');
 }
 
 function closeExpenseDetail() {
   document.getElementById('expense-detail-modal').style.display = 'none';
+  document.body.classList.remove('modal-open');
 }
 
 function renderBudget() {
@@ -1108,13 +1147,17 @@ function renderBudget() {
   el.innerHTML = html;
 }
 
-function renderCardOptions(selectEl, selected) {
+function buildCardOptionsHtml(selected) {
   var opts = '<option value="">— Sin especificar —</option>';
   state.paymentCards.forEach(function(c) {
     opts += '<option value="' + esc(c) + '"' + (c === selected ? ' selected' : '') + '>' + esc(c) + '</option>';
   });
   opts += '<option value="__new__">+ Agregar nueva…</option>';
-  selectEl.innerHTML = opts;
+  return opts;
+}
+
+function renderCardOptions(selectEl, selected) {
+  selectEl.innerHTML = buildCardOptionsHtml(selected);
 }
 
 function handleCardSelectChange(sel) {
@@ -1162,10 +1205,12 @@ function showExpenseForm(editIndex) {
     document.querySelector('#expense-modal .modal-sheet div[style*="font-size:16px"]').textContent = 'Nuevo gasto';
   }
   document.getElementById('expense-modal').style.display = 'flex';
+  document.body.classList.add('modal-open');
 }
 
 function closeExpenseModal() {
   document.getElementById('expense-modal').style.display = 'none';
+  document.body.classList.remove('modal-open');
 }
 
 function deleteExpense(idx) {
