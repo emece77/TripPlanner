@@ -252,6 +252,10 @@
         <option value="crypto">Crypto</option>
       </select>
     </div>
+    <div style="margin-bottom:16px">
+      <div class="field-label">Tarjeta</div>
+      <select class="field-input" id="exp-card" onchange="handleCardSelectChange(this)"></select>
+    </div>
     <input type="hidden" id="exp-editing-index">
     <div style="display:flex;gap:10px">
       <button class="btn btn-ghost" style="flex:1" onclick="closeExpenseModal()">Cancelar</button>
@@ -287,7 +291,8 @@ var state = {
   trips: [],
   activeTrip: null,
   changes: [],
-  exportedAt: null
+  exportedAt: null,
+  paymentCards: []
 };
 
 var EVENT_ICONS = {
@@ -317,6 +322,10 @@ function loadData() {
     .catch(function() {
       document.getElementById('sync-label').textContent = '❌ Sin conexión';
     });
+  fetch(FB + "/payment_cards.json")
+    .then(function(r) { return r.json(); })
+    .then(function(cards) { state.paymentCards = cards || []; })
+    .catch(function() {});
 }
 
 function saveChangesLocal() {
@@ -846,6 +855,23 @@ function renderBudget() {
     catTotals[ex.category] = (catTotals[ex.category] || 0) + toBase(ex.amount, ex.currency);
   });
 
+  var pmTotals = {};
+  var cardTotals = {};
+  function addPm(pm, card, amt) {
+    var key = pm || '';
+    pmTotals[key] = (pmTotals[key] || 0) + amt;
+    if (card) cardTotals[card] = (cardTotals[card] || 0) + amt;
+  }
+  (trip.days || []).forEach(function(day) {
+    (day.events || []).forEach(function(ev) {
+      if (ev._multiday_label || ev._continuation || !ev.cost || !ev.paid) return;
+      addPm(ev.payment_method, ev.card, toBase(ev.cost, ev.currency || baseCurrency));
+    });
+  });
+  expenses.forEach(function(ex) {
+    addPm(ex.payment_method, ex.card, toBase(ex.amount, ex.currency));
+  });
+
   // Estimado: todos los eventos con costo
   var totalEstimado = 0;
   (trip.days || []).forEach(function(day) {
@@ -919,17 +945,42 @@ function renderBudget() {
     html += '</div>';
   }
 
+  var PM_LABELS = { efectivo:'💵 Efectivo', debito:'💳 Débito', credito:'💳 Crédito', transferencia:'🏦 Transferencia', crypto:'₿ Crypto', '':'❔ Sin especificar' };
+  var pmKeys = Object.keys(pmTotals).filter(function(k) { return pmTotals[k] > 0; });
+  if (pmKeys.length) {
+    html += '<div class="card" style="margin-bottom:12px"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Por medio de pago (gastado)</div>';
+    pmKeys.forEach(function(pm) {
+      html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border)">' +
+        '<span>' + (PM_LABELS[pm] || esc(pm)) + '</span>' +
+        '<span style="font-weight:500">' + pmTotals[pm].toFixed(0) + ' ' + baseCurrency + '</span>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+  var cardKeys = Object.keys(cardTotals).filter(function(k) { return cardTotals[k] > 0; });
+  if (cardKeys.length) {
+    html += '<div class="card" style="margin-bottom:12px"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Por tarjeta (gastado)</div>';
+    cardKeys.forEach(function(card) {
+      html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border)">' +
+        '<span>💳 ' + esc(card) + '</span>' +
+        '<span style="font-weight:500">' + cardTotals[card].toFixed(0) + ' ' + baseCurrency + '</span>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
   html += '<div class="card"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Gastos adicionales</div>';
   if (!expenses.length) {
     html += '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:12px 0">Sin gastos adicionales</div>';
   } else {
     expenses.forEach(function(ex, idx) {
       var pmLabel = ex.payment_method ? ' · ' + ex.payment_method : '';
+      var cardLabel = ex.card ? ' · 💳 ' + esc(ex.card) : '';
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">' +
         '<span style="font-size:18px">' + (CAT_ICONS[ex.category] || '💸') + '</span>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:14px">' + esc(ex.description || ex.category) + '</div>' +
-          '<div style="font-size:12px;color:var(--text-muted)">' + (ex.date || '') + ' · ' + ex.category + pmLabel + '</div>' +
+          '<div style="font-size:12px;color:var(--text-muted)">' + (ex.date || '') + ' · ' + ex.category + pmLabel + cardLabel + '</div>' +
         '</div>' +
         '<span style="font-weight:600;font-size:14px;white-space:nowrap;margin-right:8px">' + ex.amount + ' ' + ex.currency + '</span>' +
         '<button onclick="showExpenseForm(' + idx + ')" style="background:none;border:none;color:var(--accent);font-size:16px;cursor:pointer;padding:4px">✎</button>' +
@@ -940,6 +991,37 @@ function renderBudget() {
   html += '</div>';
 
   el.innerHTML = html;
+}
+
+function renderCardOptions(selectEl, selected) {
+  var opts = '<option value="">— Sin especificar —</option>';
+  state.paymentCards.forEach(function(c) {
+    opts += '<option value="' + esc(c) + '"' + (c === selected ? ' selected' : '') + '>' + esc(c) + '</option>';
+  });
+  opts += '<option value="__new__">+ Agregar nueva…</option>';
+  selectEl.innerHTML = opts;
+}
+
+function handleCardSelectChange(sel) {
+  if (sel.value !== '__new__') return;
+  var name = prompt('Nombre de la tarjeta (ej: Visa Santander, Mastercard BBVA, Cenco Pay):');
+  if (name && name.trim()) {
+    addPaymentCard(name.trim(), sel);
+  } else {
+    sel.value = '';
+  }
+}
+
+function addPaymentCard(name, selectEl) {
+  if (state.paymentCards.indexOf(name) === -1) {
+    state.paymentCards.push(name);
+    fetch(FB + "/payment_cards.json", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state.paymentCards)
+    }).catch(function() {});
+  }
+  if (selectEl) renderCardOptions(selectEl, name);
 }
 
 function showExpenseForm(editIndex) {
@@ -953,6 +1035,7 @@ function showExpenseForm(editIndex) {
     document.getElementById('exp-amount').value = ex.amount || '';
     document.getElementById('exp-currency').value = ex.currency || 'USD';
     document.getElementById('exp-payment-method').value = ex.payment_method || '';
+    renderCardOptions(document.getElementById('exp-card'), ex.card || '');
     document.querySelector('#expense-modal .modal-sheet div[style*="font-size:16px"]').textContent = 'Editar gasto';
   } else {
     var today = new Date().toISOString().split('T')[0];
@@ -960,6 +1043,7 @@ function showExpenseForm(editIndex) {
     document.getElementById('exp-amount').value = '';
     document.getElementById('exp-description').value = '';
     document.getElementById('exp-payment-method').value = '';
+    renderCardOptions(document.getElementById('exp-card'), '');
     document.querySelector('#expense-modal .modal-sheet div[style*="font-size:16px"]').textContent = 'Nuevo gasto';
   }
   document.getElementById('expense-modal').style.display = 'flex';
@@ -973,8 +1057,13 @@ function deleteExpense(idx) {
   var trip = state.trips[state.activeTrip];
   if (!trip.extra_expenses) return;
   var ex = trip.extra_expenses[idx];
-  if (ex && ex.id) {
-    state.changes.push({ action: 'delete_extra_expense', id: ex.id });
+  if (ex) {
+    state.changes.push({
+      action: 'delete_extra_expense',
+      id: ex.id || null,
+      trip_id: trip.id,
+      match: { date: ex.date, description: ex.description, amount: ex.amount, category: ex.category }
+    });
     saveChanges();
   }
   trip.extra_expenses.splice(idx, 1);
@@ -991,7 +1080,8 @@ function saveExpense() {
     description: document.getElementById('exp-description').value,
     amount: parseFloat(document.getElementById('exp-amount').value) || 0,
     currency: document.getElementById('exp-currency').value,
-    payment_method: document.getElementById('exp-payment-method').value
+    payment_method: document.getElementById('exp-payment-method').value,
+    card: document.getElementById('exp-card').value
   };
   if (!trip.extra_expenses) trip.extra_expenses = [];
   if (editIndex !== '') {
