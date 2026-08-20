@@ -159,6 +159,16 @@
 
   /* ── MULTIDAY BADGE ── */
   .ev-multiday { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(216,185,120,0.15); color: var(--accent); border: 1px solid rgba(216,185,120,0.3); }
+
+  /* ── BUDGET CARDS ── */
+  .card { margin: 0 16px 14px; padding: 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
+  .card-title { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 14px; }
+  .card-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+  .card-row:last-child { border-bottom: none; padding-bottom: 2px; }
+  .card-row:first-child { padding-top: 0; }
+  .card-row-link { cursor: pointer; }
+  .card-row-link:active { opacity: 0.6; }
+  .chev { color: var(--text-muted); opacity: 0.5; margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -994,23 +1004,23 @@ function renderBudget() {
 
   var html = '';
 
-  html += '<div class="card" style="margin-bottom:12px">';
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
-  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">ESTIMADO</div>' +
+  html += '<div class="card">';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">';
+  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);letter-spacing:0.5px;margin-bottom:5px">ESTIMADO</div>' +
     '<div style="font-size:18px;font-weight:600">' + totalEstimado.toFixed(0) + ' ' + baseCurrency + '</div></div>';
-  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">PRESUPUESTO</div>' +
+  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);letter-spacing:0.5px;margin-bottom:5px">PRESUPUESTO</div>' +
     '<div style="font-size:18px;font-weight:600">' + (totalBudget > 0 ? totalBudget.toFixed(0) + ' ' + baseCurrency : '—') + '</div></div>';
-  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">GASTADO</div>' +
+  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);letter-spacing:0.5px;margin-bottom:5px">GASTADO</div>' +
     '<div style="font-size:18px;font-weight:600;color:' + (over ? 'var(--danger)' : 'var(--text)') + '">' + totalGastado.toFixed(0) + ' ' + baseCurrency + '</div></div>';
-  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">DISPONIBLE</div>' +
+  html += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:11px;color:var(--text-muted);letter-spacing:0.5px;margin-bottom:5px">DISPONIBLE</div>' +
     '<div style="font-size:18px;font-weight:600;color:' + (disponible === null ? 'var(--text-muted)' : over ? 'var(--danger)' : 'var(--success)') + '">' +
     (disponible === null ? '—' : disponible.toFixed(0) + ' ' + baseCurrency) + '</div></div>';
   html += '</div>';
   if (totalBudget > 0) {
-    html += '<div style="display:flex;align-items:center;gap:8px">' +
+    html += '<div style="display:flex;align-items:center;gap:10px">' +
       '<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">' +
         '<div style="width:' + pct + '%;height:100%;background:' + (over ? 'var(--danger)' : pct > 80 ? 'var(--accent)' : 'var(--success)') + ';border-radius:4px"></div>' +
-      '</div><span style="font-size:12px;color:' + (over ? 'var(--danger)' : 'var(--text-muted)') + '">' + pct + '%</span></div>';
+      '</div><span style="font-size:12px;font-weight:600;color:' + (over ? 'var(--danger)' : 'var(--text-muted)') + '">' + pct + '%</span></div>';
   }
   html += '</div>';
 
@@ -1021,30 +1031,31 @@ function renderBudget() {
     if (!ev._multiday_label && !ev._continuation && ev.cost && ev.paid) allRecordsCount++;
   }); });
   if (allRecordsCount > 0) {
-    html += '<div class="card" style="margin-bottom:12px;cursor:pointer" onclick="showExpenseDetail()">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between">' +
-        '<div style="font-weight:600;font-size:14px">📋 Todos los registros</div>' +
-        '<div style="font-size:13px;color:var(--text-muted)">' + allRecordsCount + ' ›</div>' +
+    html += '<div class="card card-row-link" style="display:flex;align-items:center;justify-content:space-between" onclick="showExpenseDetail()">' +
+      '<div style="display:flex;align-items:center;gap:12px">' +
+        '<div style="width:36px;height:36px;border-radius:10px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">📋</div>' +
+        '<div style="font-size:14px;font-weight:600">Todos los registros</div>' +
       '</div>' +
+      '<div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center">' + allRecordsCount + '<span class="chev">›</span></div>' +
     '</div>';
   }
 
   if (cats.length) {
-    html += '<div class="card" style="margin-bottom:12px"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Por categoría (gastado)</div>';
+    html += '<div class="card"><div class="card-title">Por categoría</div>';
     cats.forEach(function(cat) {
       var pctCat = totalCatSum > 0 ? Math.round(catTotals[cat] / totalCatSum * 100) : 0;
-      html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;cursor:pointer" onclick="showExpenseDetail({category:\'' + cat + '\'})">' +
-        '<span style="font-size:18px">' + (CAT_ICONS[cat] || '💸') + '</span>' +
-        '<div style="flex:1">' +
-          '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px">' +
+      html += '<div class="card-row card-row-link" onclick="showExpenseDetail({category:\'' + cat + '\'})">' +
+        '<span style="font-size:18px;flex-shrink:0">' + (CAT_ICONS[cat] || '💸') + '</span>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">' +
             '<span style="text-transform:capitalize">' + cat + '</span>' +
-            '<span style="font-weight:500">' + catTotals[cat].toFixed(0) + ' ' + baseCurrency + '</span>' +
+            '<span style="font-weight:600">' + catTotals[cat].toFixed(0) + ' ' + baseCurrency + '</span>' +
           '</div>' +
           '<div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">' +
             '<div style="width:' + pctCat + '%;height:100%;background:' + (CAT_COLORS[cat] || '#556b7d') + ';border-radius:3px"></div>' +
           '</div>' +
         '</div>' +
-        '<span style="font-size:12px;color:var(--text-muted);min-width:32px;text-align:right">' + pctCat + '% ›</span>' +
+        '<span style="font-size:12px;color:var(--text-muted);flex-shrink:0;display:flex;align-items:center">' + pctCat + '%<span class="chev">›</span></span>' +
       '</div>';
     });
     html += '</div>';
@@ -1052,43 +1063,43 @@ function renderBudget() {
 
   var pmKeys = Object.keys(pmTotals).filter(function(k) { return pmTotals[k] > 0; });
   if (pmKeys.length) {
-    html += '<div class="card" style="margin-bottom:12px"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Por medio de pago (gastado)</div>';
+    html += '<div class="card"><div class="card-title">Por medio de pago</div>';
     pmKeys.forEach(function(pm) {
-      html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="showExpenseDetail({payment_method:\'' + pm + '\'})">' +
-        '<span>' + (PM_LABELS[pm] || esc(pm)) + '</span>' +
-        '<span style="font-weight:500">' + pmTotals[pm].toFixed(0) + ' ' + baseCurrency + ' ›</span>' +
+      html += '<div class="card-row card-row-link" style="justify-content:space-between" onclick="showExpenseDetail({payment_method:\'' + pm + '\'})">' +
+        '<span style="font-size:13px">' + (PM_LABELS[pm] || esc(pm)) + '</span>' +
+        '<span style="font-size:13px;font-weight:600;display:flex;align-items:center">' + pmTotals[pm].toFixed(0) + ' ' + baseCurrency + '<span class="chev">›</span></span>' +
       '</div>';
     });
     html += '</div>';
   }
   var cardKeys = Object.keys(cardTotals).filter(function(k) { return cardTotals[k] > 0; });
   if (cardKeys.length) {
-    html += '<div class="card" style="margin-bottom:12px"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Por tarjeta (gastado)</div>';
+    html += '<div class="card"><div class="card-title">Por tarjeta</div>';
     cardKeys.forEach(function(card) {
-      html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="showExpenseDetail({card:\'' + esc(card) + '\'})">' +
-        '<span>💳 ' + esc(card) + '</span>' +
-        '<span style="font-weight:500">' + cardTotals[card].toFixed(0) + ' ' + baseCurrency + ' ›</span>' +
+      html += '<div class="card-row card-row-link" style="justify-content:space-between" onclick="showExpenseDetail({card:\'' + esc(card) + '\'})">' +
+        '<span style="font-size:13px">💳 ' + esc(card) + '</span>' +
+        '<span style="font-size:13px;font-weight:600;display:flex;align-items:center">' + cardTotals[card].toFixed(0) + ' ' + baseCurrency + '<span class="chev">›</span></span>' +
       '</div>';
     });
     html += '</div>';
   }
 
-  html += '<div class="card"><div style="font-weight:600;font-size:14px;margin-bottom:12px">Gastos adicionales</div>';
+  html += '<div class="card"><div class="card-title">Gastos adicionales</div>';
   if (!expenses.length) {
-    html += '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:12px 0">Sin gastos adicionales</div>';
+    html += '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:8px 0">Sin gastos adicionales</div>';
   } else {
     expenses.forEach(function(ex, idx) {
       var pmLabel = ex.payment_method ? ' · ' + ex.payment_method : '';
       var cardLabel = ex.card ? ' · 💳 ' + esc(ex.card) : '';
-      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">' +
-        '<span style="font-size:18px">' + (CAT_ICONS[ex.category] || '💸') + '</span>' +
+      html += '<div class="card-row">' +
+        '<span style="font-size:18px;flex-shrink:0">' + (CAT_ICONS[ex.category] || '💸') + '</span>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:14px">' + esc(ex.description || ex.category) + '</div>' +
-          '<div style="font-size:12px;color:var(--text-muted)">' + (ex.date || '') + ' · ' + ex.category + pmLabel + cardLabel + '</div>' +
+          '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">' + (ex.date || '') + ' · ' + ex.category + pmLabel + cardLabel + '</div>' +
         '</div>' +
-        '<span style="font-weight:600;font-size:14px;white-space:nowrap;margin-right:8px">' + ex.amount + ' ' + ex.currency + '</span>' +
-        '<button onclick="showExpenseForm(' + idx + ')" style="background:none;border:none;color:var(--accent);font-size:16px;cursor:pointer;padding:4px">✎</button>' +
-        '<button onclick="deleteExpense(' + idx + ')" style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:4px">✕</button>' +
+        '<span style="font-weight:600;font-size:14px;white-space:nowrap;flex-shrink:0">' + ex.amount + ' ' + ex.currency + '</span>' +
+        '<button onclick="showExpenseForm(' + idx + ')" style="background:none;border:none;color:var(--accent);font-size:16px;cursor:pointer;padding:4px;flex-shrink:0">✎</button>' +
+        '<button onclick="deleteExpense(' + idx + ')" style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:4px;flex-shrink:0">✕</button>' +
       '</div>';
     });
   }
