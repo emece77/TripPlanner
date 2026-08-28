@@ -569,6 +569,10 @@ function openEvent(dayId, eventId) {
   // ── Info por tipo ──
   var infoHtml = '';
 
+  if (['hotel','restaurant','excursion','activity'].includes(ev.type)) {
+    infoHtml += infoRow('Horario del lugar', extra.business_hours);
+  }
+
   if (ev.type === 'flight') {
     infoHtml += infoRow('Aerolínea', extra.airline);
     infoHtml += infoRow('Vuelo', extra.flight_number);
