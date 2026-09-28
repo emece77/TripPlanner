@@ -362,6 +362,8 @@ var state = {
   activeTrip: null,
   changes: [],
   exportedAt: null,
+  contentHash: null,
+  syncMsg: '',
   paymentCards: []
 };
 
@@ -378,37 +380,232 @@ var DAY_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 // ══════════════════════════════════════════════════
 var FB = "https://tripplanner-ea6fc-default-rtdb.firebaseio.com/yz4s3xmkvxis29p34p";
 
-function loadData() {
-  document.getElementById('sync-label').textContent = 'Actualizando...';
-  fetch(FB + "/trip_data.json")
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (!data) { document.getElementById('sync-label').textContent = 'Sin datos aún'; return; }
-      state.trips = data.trips || [];
-      state.exportedAt = data.exported_at;
-      document.getElementById('sync-label').textContent = 'Actualizado ' + formatSyncTime(data.exported_at);
-      renderTripsList();
-    })
-    .catch(function() {
-      document.getElementById('sync-label').textContent = '❌ Sin conexión';
-    });
-  fetch(FB + "/payment_cards.json")
-    .then(function(r) { return r.json(); })
-    .then(function(cards) { state.paymentCards = cards || []; })
-    .catch(function() {});
+// ── Copia local en el celular (IndexedDB) ──
+var _db = null;
+var _flushing = false;
+var _flushCbs = [];
+
+function openDb(cb) {
+  try {
+    var req = indexedDB.open('tripplanner', 1);
+    req.onupgradeneeded = function() { req.result.createObjectStore('kv'); };
+    req.onsuccess = function() { _db = req.result; cb(); };
+    req.onerror = function() { cb(); };
+  } catch (e) { cb(); }
+}
+
+function idbGet(key, cb) {
+  if (!_db) { cb(null); return; }
+  try {
+    var r = _db.transaction('kv', 'readonly').objectStore('kv').get(key);
+    r.onsuccess = function() { cb(r.result === undefined ? null : r.result); };
+    r.onerror = function() { cb(null); };
+  } catch (e) { cb(null); }
+}
+
+function idbSet(key, value) {
+  if (!_db) return;
+  try { _db.transaction('kv', 'readwrite').objectStore('kv').put(value, key); } catch (e) {}
+}
+
+function fetchT(url, opts, ms) {
+  opts = opts || {};
+  var ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+  var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, ms) : null;
+  if (ctrl) opts.signal = ctrl.signal;
+  return fetch(url, opts).then(
+    function(r) { if (timer) clearTimeout(timer); return r; },
+    function(e) { if (timer) clearTimeout(timer); throw e; }
+  );
+}
+
+function fetchJson(url, ms) {
+  return fetchT(url, { cache: 'no-store' }, ms).then(function(r) {
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  });
+}
+
+function setSyncLabel(txt) {
+  state.syncMsg = txt;
+  var n = state.changes.length;
+  document.getElementById('sync-label').textContent = txt + (n ? ' · ' + n + ' cambio(s) esperando a la PC' : '');
 }
 
 function saveChangesLocal() {
+  idbSet('outbox', state.changes);
+}
+
+// ── Aplicar en pantalla los cambios que la PC todavía no confirmó ──
+function findEventLocal(id) {
+  for (var t = 0; t < state.trips.length; t++) {
+    var days = state.trips[t].days || [];
+    for (var d = 0; d < days.length; d++) {
+      var evs = days[d].events || [];
+      for (var e = 0; e < evs.length; e++) {
+        if (String(evs[e].id) === String(id)) return evs[e];
+      }
+    }
+  }
+  return null;
+}
+
+function findTripLocal(id) {
+  for (var t = 0; t < state.trips.length; t++) {
+    if (String(state.trips[t].id) === String(id)) return state.trips[t];
+  }
+  return null;
+}
+
+function findExpenseLocal(trip, ch) {
+  var list = trip.extra_expenses || [];
+  for (var i = 0; i < list.length; i++) {
+    var x = list[i];
+    if (ch.id) {
+      if (String(x.id) === String(ch.id)) return i;
+    } else if (ch.match && x.date === ch.match.date && x.description === ch.match.description && x.amount === ch.match.amount && x.category === ch.match.category) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function applyChangeLocal(ch) {
   try {
-    localStorage.setItem('tp_changes', JSON.stringify({ changes: state.changes }));
+    if (ch.action === 'update_event') {
+      var ev = findEventLocal(ch.id);
+      if (ev) Object.assign(ev, ch.fields);
+    } else if (ch.action === 'update_day_notes') {
+      state.trips.forEach(function(t) { (t.days || []).forEach(function(d) { if (String(d.id) === String(ch.day_id)) d.notes = ch.notes; }); });
+    } else if (ch.action === 'toggle_packing_item') {
+      state.trips.forEach(function(t) { (t.packing_items || []).forEach(function(p) { if (String(p.id) === String(ch.id)) p.done = ch.done ? 1 : 0; }); });
+    } else if (ch.action === 'upload_document') {
+      var tr = findTripLocal(ch.trip_id);
+      if (tr) {
+        tr.documents = tr.documents || [];
+        tr.documents.push({ original_name: ch.original_name, file_type: ch.file_type, file_size: Math.round((ch.base64_data || '').length * 0.75), base64_data: ch.base64_data, notes: 'Subido desde celular' });
+      }
+    } else if (ch.action === 'add_extra_expense') {
+      var t2 = findTripLocal(ch.data && ch.data.trip_id);
+      if (t2) { t2.extra_expenses = t2.extra_expenses || []; t2.extra_expenses.push(Object.assign({}, ch.data)); }
+    } else if (ch.action === 'delete_extra_expense') {
+      var t3 = findTripLocal(ch.trip_id);
+      if (t3) { var i3 = findExpenseLocal(t3, ch); if (i3 >= 0) t3.extra_expenses.splice(i3, 1); }
+    } else if (ch.action === 'update_extra_expense') {
+      var t4 = findTripLocal(ch.trip_id);
+      if (t4) { var i4 = findExpenseLocal(t4, ch); if (i4 >= 0) Object.assign(t4.extra_expenses[i4], ch.data); }
+    }
   } catch (e) {}
+}
+
+// Carga los datos de la copia y les aplica encima lo pendiente
+function applyBase(data) {
+  var done = {};
+  (data.applied_cids || []).forEach(function(c) { done[c] = 1; });
+  var before = state.changes.length;
+  state.changes = state.changes.filter(function(ch) { return !(ch.cid && done[ch.cid]); });
+  if (state.changes.length !== before) saveChangesLocal();
+  state.trips = data.trips || [];
+  state.exportedAt = data.exported_at;
+  state.contentHash = data.content_hash || null;
+  state.changes.forEach(applyChangeLocal);
+}
+
+// ── Actualizar: primero pregunta la huella (unos pocos bytes); baja todo solo si cambió ──
+function loadData() {
+  setSyncLabel('Actualizando...');
+  fetchJson(FB + '/payment_cards.json', 8000).then(function(cards) {
+    state.paymentCards = cards || [];
+    idbSet('cards', state.paymentCards);
+  }).catch(function() {});
+  fetchJson(FB + '/trip_meta.json', 8000).then(function(meta) {
+    if (state.contentHash && meta && meta.hash === state.contentHash) {
+      setSyncLabel('Al día ✓');
+      flushOutbox();
+      return;
+    }
+    return downloadAll();
+  }).catch(function() {
+    setSyncLabel(state.trips.length ? '📴 Sin conexión · datos de ' + formatSyncTime(state.exportedAt) : '❌ Sin conexión y sin datos guardados');
+  });
+}
+
+function downloadAll() {
+  setSyncLabel('Descargando datos...');
+  return fetchJson(FB + '/trip_data.json', 120000).then(function(data) {
+    if (!data) { setSyncLabel(state.trips.length ? 'Al día ✓' : 'Sin datos aún'); return; }
+    idbSet('base', data);   // se guarda tal cual, ANTES de aplicarle los cambios pendientes
+    applyBase(data);
+    renderTripsList();
+    setSyncLabel('Actualizado ' + formatSyncTime(data.exported_at));
+    flushOutbox();
+  });
+}
+
+// ── Enviar a Firebase los cambios pendientes (en orden, con reintento cuando vuelve la señal) ──
+function flushOutbox(cb) {
+  if (cb) _flushCbs.push(cb);
+  if (_flushing) return;
+  var hasPending = state.changes.some(function(c) { return !c._sent; });
+  if (!hasPending) { finishFlush(true); return; }
+  _flushing = true;
+  sendNext();
+}
+
+function finishFlush(ok) {
+  _flushing = false;
+  var cbs = _flushCbs;
+  _flushCbs = [];
+  cbs.forEach(function(f) { f(ok); });
+  setSyncLabel(state.syncMsg);
+}
+
+function sendNext() {
+  var ch = null;
+  for (var k = 0; k < state.changes.length; k++) {
+    if (!state.changes[k]._sent) { ch = state.changes[k]; break; }
+  }
+  if (!ch) { finishFlush(true); return; }
+  var body = {};
+  Object.keys(ch).forEach(function(key) { if (key !== '_sent') body[key] = ch[key]; });
+  fetchT(FB + '/changes.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 45000)
+    .then(function(r) {
+      if (!r.ok) throw new Error('http ' + r.status);
+      ch._sent = true;
+      saveChangesLocal();
+      sendNext();
+    })
+    .catch(function() { finishFlush(false); });
+}
+
+// ── Arranque: muestra la copia guardada al instante y después consulta si hay algo nuevo ──
+function startApp() {
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  try { if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function() {}); } catch (e) {}
+  openDb(function() {
+    idbGet('outbox', function(ob) {
+      state.changes = ob || [];
+      idbGet('cards', function(cards) {
+        if (cards) state.paymentCards = cards;
+        idbGet('base', function(base) {
+          if (base) {
+            applyBase(base);
+            renderTripsList();
+            setSyncLabel('Copia guardada · ' + formatSyncTime(base.exported_at));
+          }
+          loadData();
+        });
+      });
+    });
+  });
+  window.addEventListener('online', function() { loadData(); });
 }
 
 // ══════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════
 window.onload = function() {
-  loadData();
+  startApp();
 };
 
 // ══════════════════════════════════════════════════
@@ -976,6 +1173,7 @@ function saveEventChanges(eventId) {
 
 function updateDayNotes(dayId, notes) {
   state.changes.push({ action: 'update_day_notes', day_id: parseInt(dayId), notes: notes });
+  applyChangeLocal(state.changes[state.changes.length - 1]);
   saveChanges();
 }
 
@@ -1046,17 +1244,17 @@ function handleUpload(input) {
 // ══════════════════════════════════════════════════
 // CHANGES PERSISTENCE
 // ══════════════════════════════════════════════════
+function newCid() {
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
+
 function saveChanges() {
-  var change = state.changes[state.changes.length - 1];
-  if (!change) return;
-  saveChangesLocal();  // backup local por las dudas
-  fetch(FB + "/changes.json", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(change)
-  })
-  .then(function() { showToast('Guardado ✓'); })
-  .catch(function() { showToast('Sin conexión — se guardó local'); });
+  state.changes.forEach(function(c) { if (!c.cid) c.cid = newCid(); });
+  saveChangesLocal();
+  setSyncLabel(state.syncMsg);
+  flushOutbox(function(ok) {
+    showToast(ok ? 'Guardado ✓' : 'Guardado en el celular · se enviará al tener señal');
+  });
 }
 
 function writeChangesFile(payload) {
@@ -1494,7 +1692,15 @@ function saveExpense() {
   };
   if (!trip.extra_expenses) trip.extra_expenses = [];
   if (editIndex !== '') {
-    trip.extra_expenses[parseInt(editIndex)] = Object.assign(trip.extra_expenses[parseInt(editIndex)], data);
+    var oldEx = trip.extra_expenses[parseInt(editIndex)];
+    state.changes.push({
+      action: 'update_extra_expense',
+      id: oldEx.id || null,
+      trip_id: trip.id,
+      match: { date: oldEx.date, description: oldEx.description, amount: oldEx.amount, category: oldEx.category },
+      data: data
+    });
+    trip.extra_expenses[parseInt(editIndex)] = Object.assign(oldEx, data);
   } else {
     var change = { action: 'add_extra_expense', data: data };
     state.changes.push(change);
