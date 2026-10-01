@@ -8,6 +8,8 @@
 <meta name="theme-color" content="#1A1714">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <title>Trip Planner</title>
 <style>
   :root {
@@ -236,6 +238,18 @@
     <div class="topbar-title">📝 Listas</div>
   </div>
   <div class="content" id="lists-content"></div>
+</div>
+
+<!-- ══ SCREEN: MAPA DE LISTA ══ -->
+<div id="screen-listmap" class="screen">
+  <div class="topbar">
+    <button class="topbar-back" onclick="showScreen('lists')">‹</button>
+    <div class="topbar-title" id="listmap-title">🗺️ Mapa</div>
+  </div>
+  <div class="content">
+    <div id="list-map" style="width:100%;height:42vh;isolation:isolate"></div>
+    <div id="list-map-rows" style="padding:12px 16px"></div>
+  </div>
 </div>
 
 <!-- ══ SCREEN: TIMELINE ══ -->
@@ -638,6 +652,8 @@ function unlockBodyScroll() {
 }
 
 function showScreen(name) {
+  var current = document.querySelector('.screen.active');
+  if (current && current.id === 'screen-listmap' && name !== 'listmap') stopListMapWatch();
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('screen-' + name).classList.add('active');
   document.getElementById('screen-' + name).scrollTop = 0;
@@ -739,7 +755,11 @@ function renderLists() {
   }
   var html = '';
   lists.forEach(function(l, li) {
-    html += '<div class="card"><div class="card-title">' + (l.icon || '📋') + ' ' + esc(l.name) + '</div>';
+    var geoCount = (l.items || []).filter(function(it) { return it.lat && it.lon; }).length;
+    html += '<div class="card"><div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+      '<span>' + (l.icon || '📋') + ' ' + esc(l.name) + '</span>' +
+      (geoCount ? '<button class="topbar-action" style="padding:4px 10px;border:1px solid var(--border);border-radius:8px" onclick="showListMap(' + li + ')">🗺️ Mapa</button>' : '') +
+      '</div>';
     if (!l.items || !l.items.length) {
       html += '<div style="font-size:13px;color:var(--text-muted);padding:4px 0">Sin ítems.</div>';
     } else {
@@ -762,6 +782,106 @@ function renderLists() {
     html += '</div>';
   });
   el.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════
+// MAPA DE LISTA
+// ══════════════════════════════════════════════════
+var _listMap = null;
+var _listMapWatchId = null;
+var _listMapMarkers = [];
+var _listMapMe = null;
+
+function haversine(lat1, lon1, lat2, lon2) {
+  var R = 6371000;
+  var toRad = function(d) { return d * Math.PI / 180; };
+  var dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDist(m) {
+  if (m == null) return '';
+  return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km';
+}
+
+function stopListMapWatch() {
+  if (_listMapWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(_listMapWatchId);
+    _listMapWatchId = null;
+  }
+}
+
+function showListMap(li) {
+  var trip = state.trips[state.activeTrip];
+  var list = (trip.trip_lists || [])[li];
+  if (!list) return;
+  var pts = (list.items || []).filter(function(it) { return it.lat && it.lon; });
+  document.getElementById('listmap-title').textContent = (list.icon || '🗺️') + ' ' + list.name;
+  showScreen('listmap');
+
+  if (!_listMap) {
+    _listMap = L.map('list-map');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(_listMap);
+  }
+  _listMapMarkers.forEach(function(m) { _listMap.removeLayer(m); });
+  _listMapMarkers = [];
+  if (_listMapMe) { _listMap.removeLayer(_listMapMe); _listMapMe = null; }
+
+  pts.forEach(function(it) {
+    var mk = L.marker([it.lat, it.lon]).addTo(_listMap).bindPopup('<b>' + esc(it.name) + '</b>' + (it.address ? '<br>' + esc(it.address) : ''));
+    _listMapMarkers.push(mk);
+  });
+  if (pts.length) {
+    _listMap.fitBounds(L.latLngBounds(pts.map(function(p) { return [p.lat, p.lon]; })).pad(0.2));
+  } else {
+    _listMap.setView([0, 0], 2);
+  }
+  setTimeout(function() { _listMap.invalidateSize(); }, 150);
+
+  renderListMapRows(pts, null);
+
+  stopListMapWatch();
+  if (navigator.geolocation) {
+    _listMapWatchId = navigator.geolocation.watchPosition(function(pos) {
+      var me = [pos.coords.latitude, pos.coords.longitude];
+      if (!_listMapMe) {
+        _listMapMe = L.circleMarker(me, { radius: 8, color: '#2E86DE', fillColor: '#2E86DE', fillOpacity: 0.9 }).addTo(_listMap).bindPopup('Vos estás acá');
+      } else {
+        _listMapMe.setLatLng(me);
+      }
+      renderListMapRows(pts, me);
+    }, function() {
+      document.getElementById('list-map-rows').insertAdjacentHTML('afterbegin',
+        '<div style="font-size:12px;color:var(--text-muted);padding:4px 0 10px">No se pudo obtener tu ubicación (revisá los permisos de ubicación del navegador).</div>');
+    }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
+  }
+}
+
+function renderListMapRows(pts, me) {
+  var rows = pts.map(function(it) {
+    var d = me ? haversine(me[0], me[1], it.lat, it.lon) : null;
+    return { it: it, d: d };
+  });
+  rows.sort(function(a, b) {
+    if (a.d == null && b.d == null) return 0;
+    if (a.d == null) return 1;
+    if (b.d == null) return -1;
+    return a.d - b.d;
+  });
+  var html = rows.map(function(r) {
+    return '<div class="card-row" style="justify-content:space-between" onclick="flyToListMapPoint(' + r.it.lat + ',' + r.it.lon + ')">' +
+      '<div style="min-width:0"><div style="font-size:14px">' + esc(r.it.name) + '</div>' +
+      (r.it.address ? '<div style="font-size:12px;color:var(--text-muted)">📍 ' + esc(r.it.address) + '</div>' : '') + '</div>' +
+      (r.d != null ? '<div style="font-size:13px;font-weight:600;color:var(--accent);white-space:nowrap;margin-left:8px">' + formatDist(r.d) + '</div>' : '') +
+      '</div>';
+  }).join('');
+  document.getElementById('list-map-rows').innerHTML = html || '<div style="font-size:13px;color:var(--text-muted)">Sin puntos con ubicación en esta lista.</div>';
+}
+
+function flyToListMapPoint(lat, lon) {
+  if (_listMap) _listMap.flyTo([lat, lon], 16);
 }
 
 function renderTimeline() {
