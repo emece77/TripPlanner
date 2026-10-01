@@ -791,6 +791,12 @@ var _listMap = null;
 var _listMapWatchId = null;
 var _listMapMarkers = [];
 var _listMapMe = null;
+var _listMapMeLL = null;
+var _listMapPts = [];
+var _listMapSelected = null;
+var _listMapMode = 'walking';
+var _listMapRouteLayer = null;
+var _listMapRouteReq = 0;
 
 function haversine(lat1, lon1, lat2, lon2) {
   var R = 6371000;
@@ -806,6 +812,14 @@ function formatDist(m) {
   return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km';
 }
 
+function formatDuration(s) {
+  if (s == null) return '';
+  var min = Math.round(s / 60);
+  if (min < 60) return min + ' min';
+  var h = Math.floor(min / 60), m = min % 60;
+  return h + ' h' + (m ? ' ' + m + ' min' : '');
+}
+
 function stopListMapWatch() {
   if (_listMapWatchId !== null && navigator.geolocation) {
     navigator.geolocation.clearWatch(_listMapWatchId);
@@ -817,7 +831,9 @@ function showListMap(li) {
   var trip = state.trips[state.activeTrip];
   var list = (trip.trip_lists || [])[li];
   if (!list) return;
-  var pts = (list.items || []).filter(function(it) { return it.lat && it.lon; });
+  _listMapPts = (list.items || []).filter(function(it) { return it.lat && it.lon; });
+  _listMapSelected = null;
+  _listMapMode = 'walking';
   document.getElementById('listmap-title').textContent = (list.icon || '🗺️') + ' ' + list.name;
   showScreen('listmap');
 
@@ -825,33 +841,36 @@ function showListMap(li) {
     _listMap = L.map('list-map');
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(_listMap);
   }
+  document.getElementById('list-map').style.height = '42vh';
   _listMapMarkers.forEach(function(m) { _listMap.removeLayer(m); });
   _listMapMarkers = [];
-  if (_listMapMe) { _listMap.removeLayer(_listMapMe); _listMapMe = null; }
+  if (_listMapRouteLayer) { _listMap.removeLayer(_listMapRouteLayer); _listMapRouteLayer = null; }
 
-  pts.forEach(function(it) {
+  _listMapPts.forEach(function(it, idx) {
     var mk = L.marker([it.lat, it.lon]).addTo(_listMap).bindPopup('<b>' + esc(it.name) + '</b>' + (it.address ? '<br>' + esc(it.address) : ''));
+    mk.on('click', function() { selectListMapItem(idx); });
     _listMapMarkers.push(mk);
   });
-  if (pts.length) {
-    _listMap.fitBounds(L.latLngBounds(pts.map(function(p) { return [p.lat, p.lon]; })).pad(0.2));
+  if (_listMapPts.length) {
+    _listMap.fitBounds(L.latLngBounds(_listMapPts.map(function(p) { return [p.lat, p.lon]; })).pad(0.2));
   } else {
     _listMap.setView([0, 0], 2);
   }
   setTimeout(function() { _listMap.invalidateSize(); }, 150);
 
-  renderListMapRows(pts, null);
+  renderListMapRows();
 
   stopListMapWatch();
   if (navigator.geolocation) {
     _listMapWatchId = navigator.geolocation.watchPosition(function(pos) {
-      var me = [pos.coords.latitude, pos.coords.longitude];
+      _listMapMeLL = [pos.coords.latitude, pos.coords.longitude];
       if (!_listMapMe) {
-        _listMapMe = L.circleMarker(me, { radius: 8, color: '#2E86DE', fillColor: '#2E86DE', fillOpacity: 0.9 }).addTo(_listMap).bindPopup('Vos estás acá');
+        _listMapMe = L.circleMarker(_listMapMeLL, { radius: 8, color: '#2E86DE', fillColor: '#2E86DE', fillOpacity: 0.9 }).addTo(_listMap).bindPopup('Vos estás acá');
       } else {
-        _listMapMe.setLatLng(me);
+        _listMapMe.setLatLng(_listMapMeLL);
       }
-      renderListMapRows(pts, me);
+      renderListMapRows();
+      if (_listMapSelected) fetchListMapRoute();
     }, function() {
       document.getElementById('list-map-rows').insertAdjacentHTML('afterbegin',
         '<div style="font-size:12px;color:var(--text-muted);padding:4px 0 10px">No se pudo obtener tu ubicación (revisá los permisos de ubicación del navegador).</div>');
@@ -859,9 +878,88 @@ function showListMap(li) {
   }
 }
 
-function renderListMapRows(pts, me) {
-  var rows = pts.map(function(it) {
-    var d = me ? haversine(me[0], me[1], it.lat, it.lon) : null;
+function selectListMapItem(idx) {
+  _listMapSelected = _listMapPts[idx];
+  document.getElementById('list-map').style.height = '62vh';
+  setTimeout(function() { _listMap.invalidateSize(); }, 150);
+  if (_listMapMeLL) {
+    _listMap.fitBounds(L.latLngBounds([_listMapMeLL, [_listMapSelected.lat, _listMapSelected.lon]]).pad(0.25));
+  } else {
+    _listMap.setView([_listMapSelected.lat, _listMapSelected.lon], 16);
+  }
+  var mk = _listMapMarkers[_listMapPts.indexOf(_listMapSelected)];
+  if (mk) mk.openPopup();
+  renderListMapRows();
+  fetchListMapRoute();
+}
+
+function clearListMapSelection() {
+  _listMapSelected = null;
+  document.getElementById('list-map').style.height = '42vh';
+  setTimeout(function() { _listMap.invalidateSize(); }, 150);
+  if (_listMapRouteLayer) { _listMap.removeLayer(_listMapRouteLayer); _listMapRouteLayer = null; }
+  if (_listMapPts.length) {
+    _listMap.fitBounds(L.latLngBounds(_listMapPts.map(function(p) { return [p.lat, p.lon]; })).pad(0.2));
+  }
+  renderListMapRows();
+}
+
+function setListMapMode(mode) {
+  _listMapMode = mode;
+  renderListMapRows();
+  fetchListMapRoute();
+}
+
+function googleMapsUrl(it) {
+  return 'https://www.google.com/maps/dir/?api=1&destination=' + it.lat + ',' + it.lon + '&travelmode=' + _listMapMode;
+}
+
+function fetchListMapRoute() {
+  if (!_listMapSelected || !_listMapMeLL) return;
+  var reqId = ++_listMapRouteReq;
+  var profile = _listMapMode === 'driving' ? 'driving' : 'foot';
+  var url = 'https://router.project-osrm.org/route/v1/' + profile + '/' +
+    _listMapMeLL[1] + ',' + _listMapMeLL[0] + ';' + _listMapSelected.lon + ',' + _listMapSelected.lat +
+    '?overview=full&geometries=geojson';
+  fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+    if (reqId !== _listMapRouteReq || !_listMapSelected) return;
+    if (_listMapRouteLayer) { _listMap.removeLayer(_listMapRouteLayer); _listMapRouteLayer = null; }
+    if (!data.routes || !data.routes[0]) { renderListMapRows(); return; }
+    var route = data.routes[0];
+    var latlngs = route.geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+    _listMapRouteLayer = L.polyline(latlngs, { color: '#2E86DE', weight: 5, opacity: 0.8 }).addTo(_listMap);
+    _listMap.fitBounds(_listMapRouteLayer.getBounds().pad(0.15));
+    _listMapSelected._routeDist = route.distance;
+    _listMapSelected._routeDur = route.duration;
+    renderListMapRows();
+  }).catch(function() { renderListMapRows(); });
+}
+
+function renderListMapRows() {
+  var el = document.getElementById('list-map-rows');
+  if (_listMapSelected) {
+    var it = _listMapSelected;
+    var straight = _listMapMeLL ? haversine(_listMapMeLL[0], _listMapMeLL[1], it.lat, it.lon) : null;
+    el.innerHTML =
+      '<button class="topbar-action" style="padding:4px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px" onclick="clearListMapSelection()">← Ver todos (' + _listMapPts.length + ')</button>' +
+      '<div class="card">' +
+        '<div class="card-title">' + esc(it.name) + '</div>' +
+        (it.address ? '<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">📍 ' + esc(it.address) + '</div>' : '') +
+        '<div style="display:flex;gap:8px;margin:10px 0">' +
+          '<button style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:' + (_listMapMode === 'walking' ? 'var(--accent)' : 'transparent') + ';color:' + (_listMapMode === 'walking' ? '#fff' : 'var(--text)') + '" onclick="setListMapMode(\'walking\')">🚶 A pie</button>' +
+          '<button style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:' + (_listMapMode === 'driving' ? 'var(--accent)' : 'transparent') + ';color:' + (_listMapMode === 'driving' ? '#fff' : 'var(--text)') + '" onclick="setListMapMode(\'driving\')">🚗 En auto</button>' +
+        '</div>' +
+        (it._routeDist != null
+          ? '<div style="font-size:14px;font-weight:600;margin-bottom:10px">' + formatDist(it._routeDist) + ' · ' + formatDuration(it._routeDur) + '</div>'
+          : (straight != null
+              ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Calculando ruta... (línea recta: ' + formatDist(straight) + ')</div>'
+              : '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Esperando tu ubicación...</div>')) +
+        '<a href="' + googleMapsUrl(it) + '" target="_blank" style="display:block;text-align:center;padding:10px;border-radius:8px;background:var(--accent);color:#fff;font-size:14px;font-weight:600;text-decoration:none">🗺️ Seguir en Google Maps</a>' +
+      '</div>';
+    return;
+  }
+  var rows = _listMapPts.map(function(it) {
+    var d = _listMapMeLL ? haversine(_listMapMeLL[0], _listMapMeLL[1], it.lat, it.lon) : null;
     return { it: it, d: d };
   });
   rows.sort(function(a, b) {
@@ -871,17 +969,14 @@ function renderListMapRows(pts, me) {
     return a.d - b.d;
   });
   var html = rows.map(function(r) {
-    return '<div class="card-row" style="justify-content:space-between" onclick="flyToListMapPoint(' + r.it.lat + ',' + r.it.lon + ')">' +
+    var idx = _listMapPts.indexOf(r.it);
+    return '<div class="card-row" style="justify-content:space-between" onclick="selectListMapItem(' + idx + ')">' +
       '<div style="min-width:0"><div style="font-size:14px">' + esc(r.it.name) + '</div>' +
       (r.it.address ? '<div style="font-size:12px;color:var(--text-muted)">📍 ' + esc(r.it.address) + '</div>' : '') + '</div>' +
       (r.d != null ? '<div style="font-size:13px;font-weight:600;color:var(--accent);white-space:nowrap;margin-left:8px">' + formatDist(r.d) + '</div>' : '') +
       '</div>';
   }).join('');
-  document.getElementById('list-map-rows').innerHTML = html || '<div style="font-size:13px;color:var(--text-muted)">Sin puntos con ubicación en esta lista.</div>';
-}
-
-function flyToListMapPoint(lat, lon) {
-  if (_listMap) _listMap.flyTo([lat, lon], 16);
+  el.innerHTML = html || '<div style="font-size:13px;color:var(--text-muted)">Sin puntos con ubicación en esta lista.</div>';
 }
 
 function renderTimeline() {
