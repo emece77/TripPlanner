@@ -240,6 +240,16 @@
   <div class="content" id="lists-content"></div>
 </div>
 
+<!-- ══ SCREEN: DETALLE DE LISTA ══ -->
+<div id="screen-listdetail" class="screen">
+  <div class="topbar">
+    <button class="topbar-back" onclick="showScreen('lists')">‹</button>
+    <div class="topbar-title" id="listdetail-title">📝</div>
+    <button class="topbar-action" id="listdetail-map-btn" style="display:none">🗺️ Mapa</button>
+  </div>
+  <div class="content" id="listdetail-content"></div>
+</div>
+
 <!-- ══ SCREEN: MAPA DE LISTA ══ -->
 <div id="screen-listmap" class="screen">
   <div class="topbar">
@@ -745,6 +755,8 @@ function closeListItemDetail() {
   unlockBodyScroll();
 }
 
+var _listDetailIdx = null;
+
 function renderLists() {
   var trip = state.trips[state.activeTrip];
   var el = document.getElementById('lists-content');
@@ -753,35 +765,52 @@ function renderLists() {
     el.innerHTML = '<div class="empty"><div class="empty-icon">📝</div><div class="empty-text">Sin listas cargadas.<br>Agregalas desde la app de escritorio.</div></div>';
     return;
   }
-  var html = '';
-  lists.forEach(function(l, li) {
-    var geoCount = (l.items || []).filter(function(it) { return it.lat && it.lon; }).length;
-    html += '<div class="card"><div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-      '<span>' + (l.icon || '📋') + ' ' + esc(l.name) + '</span>' +
-      (geoCount ? '<button class="topbar-action" style="padding:4px 10px;border:1px solid var(--border);border-radius:8px" onclick="showListMap(' + li + ')">🗺️ Mapa</button>' : '') +
+  el.innerHTML = '<div class="card">' + lists.map(function(l, li) {
+    var n = (l.items || []).length;
+    var done = (l.items || []).filter(function(it) { return it.checked; }).length;
+    return '<div class="card-row card-row-link" onclick="showListDetail(' + li + ')">' +
+      '<span style="font-size:20px;flex-shrink:0">' + (l.icon || '📋') + '</span>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:15px;font-weight:600">' + esc(l.name) + '</div>' +
+        '<div style="font-size:12px;color:var(--text-muted)">' + n + (n === 1 ? ' ítem' : ' ítems') + (done ? ' · ' + done + ' listo' + (done === 1 ? '' : 's') : '') + '</div>' +
+      '</div>' +
+      '<span class="chev">›</span>' +
+    '</div>';
+  }).join('') + '</div>';
+}
+
+function showListDetail(li) {
+  var trip = state.trips[state.activeTrip];
+  var list = (trip.trip_lists || [])[li];
+  if (!list) return;
+  _listDetailIdx = li;
+  document.getElementById('listdetail-title').textContent = (list.icon || '📋') + ' ' + list.name;
+  var geoCount = (list.items || []).filter(function(it) { return it.lat && it.lon; }).length;
+  var mapBtn = document.getElementById('listdetail-map-btn');
+  mapBtn.style.display = geoCount ? '' : 'none';
+  mapBtn.onclick = function() { showListMap(li); };
+
+  var el = document.getElementById('listdetail-content');
+  if (!list.items || !list.items.length) {
+    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:16px">Sin ítems en esta lista.</div>';
+  } else {
+    el.innerHTML = '<div class="card">' + list.items.map(function(it, ii) {
+      return '<div class="card-row card-row-link" style="align-items:flex-start" onclick="showListItemDetail(' + li + ',' + ii + ')">' +
+        '<span style="font-size:16px;flex-shrink:0">' + (it.checked ? '✅' : '⬜') + '</span>' +
+        (it.photo ? '<img src="' + it.photo + '" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex-shrink:0" onerror="this.style.display=\'none\'">' : '') +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:14px;' + (it.checked ? 'text-decoration:line-through;color:var(--text-muted)' : '') + '">' + esc(it.name) + '</div>' +
+          (it.description ? '<div style="font-size:12px;color:var(--text-muted)">' + esc(it.description) + '</div>' : '') +
+          (it.address ? '<div style="font-size:12px;color:var(--text-muted)">📍 ' + esc(it.address) + '</div>' : '') +
+          (it.price > 0 ? '<div style="font-size:12px;font-weight:600">💲 ' + it.price + ' ' + esc(it.currency || '') + '</div>' : '') +
+          (it.phone ? '<div style="font-size:12px;color:var(--text-muted)">📞 ' + esc(it.phone) + '</div>' : '') +
+          (it.website ? '<div style="font-size:12px"><a href="' + esc(it.website) + '" target="_blank" style="color:var(--accent)">🔗 ' + esc(it.website) + '</a></div>' : '') +
+          (it.notes ? '<div style="font-size:12px;color:var(--text-muted)">' + esc(it.notes) + '</div>' : '') +
+        '</div>' +
       '</div>';
-    if (!l.items || !l.items.length) {
-      html += '<div style="font-size:13px;color:var(--text-muted);padding:4px 0">Sin ítems.</div>';
-    } else {
-      l.items.forEach(function(it, ii) {
-        html += '<div class="card-row card-row-link" style="align-items:flex-start" onclick="showListItemDetail(' + li + ',' + ii + ')">' +
-          '<span style="font-size:16px;flex-shrink:0">' + (it.checked ? '✅' : '⬜') + '</span>' +
-          (it.photo ? '<img src="' + it.photo + '" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex-shrink:0" onerror="this.style.display=\'none\'">' : '') +
-          '<div style="flex:1;min-width:0">' +
-            '<div style="font-size:14px;' + (it.checked ? 'text-decoration:line-through;color:var(--text-muted)' : '') + '">' + esc(it.name) + '</div>' +
-            (it.description ? '<div style="font-size:12px;color:var(--text-muted)">' + esc(it.description) + '</div>' : '') +
-            (it.address ? '<div style="font-size:12px;color:var(--text-muted)">📍 ' + esc(it.address) + '</div>' : '') +
-            (it.price > 0 ? '<div style="font-size:12px;font-weight:600">💲 ' + it.price + ' ' + esc(it.currency || '') + '</div>' : '') +
-            (it.phone ? '<div style="font-size:12px;color:var(--text-muted)">📞 ' + esc(it.phone) + '</div>' : '') +
-            (it.website ? '<div style="font-size:12px"><a href="' + esc(it.website) + '" target="_blank" style="color:var(--accent)">🔗 ' + esc(it.website) + '</a></div>' : '') +
-            (it.notes ? '<div style="font-size:12px;color:var(--text-muted)">' + esc(it.notes) + '</div>' : '') +
-          '</div>' +
-        '</div>';
-      });
-    }
-    html += '</div>';
-  });
-  el.innerHTML = html;
+    }).join('') + '</div>';
+  }
+  showScreen('listdetail');
 }
 
 // ══════════════════════════════════════════════════
